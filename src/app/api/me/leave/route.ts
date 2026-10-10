@@ -1,0 +1,4 @@
+import { apiError,requestIdentity,jsonBody } from "@/lib/http";
+import { absenceData,requestLeave,requestDatedLeave } from "@/features/review/absence";
+export async function GET(request:Request) { try { const {page,...filters}=Object.fromEntries(new URL(request.url).searchParams);const result=await absenceData(await requestIdentity(),false,Number(page??1),undefined,filters);return Response.json(result,{headers:{"Cache-Control":"private, no-store"}}); }catch(error){return apiError(error);} }
+export async function POST(request:Request) { try { const identity=await requestIdentity(true),body=await jsonBody(request);const result=await (body&&typeof body==="object"&&"startDate" in body?requestDatedLeave(identity,body):requestLeave(identity,body));return Response.json(result,{headers:{"Cache-Control":"private, no-store"}}); }catch(error){return apiError(error);} }

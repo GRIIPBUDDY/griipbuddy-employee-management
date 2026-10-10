@@ -1,0 +1,16 @@
+import Link from "next/link";
+import { getIdentity } from "@/lib/auth/request";
+import { pageResult } from "@/lib/auth/page-result";
+import { periodData } from "@/features/pay/periods";
+import { dateKey } from "@/features/time/dates";
+import { ActionForm,Field,Hidden,payAction,PayNav,Pager,label } from "@/components/pay/common";
+export default async function Page({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}) {
+ const q=await searchParams,data=await pageResult(periodData(await getIdentity(),q.id?{id:q.id}:{page:q.page??1})),selected=q.id?data.records[0]:undefined;
+ return <><h1 className="text-3xl font-semibold">Salary periods</h1><PayNav/><p className="text-sm">Calendar months use the organization currency and timezone. Review begins after all intersecting weeks finish. Admin approval and finalization follow HR preparation.</p>
+ {!selected && <section className="max-w-lg rounded-lg border bg-white p-5"><h2 className="mb-4 font-semibold">Create salary month</h2><ActionForm action={payAction} submitLabel="Create monthly period"><Hidden values={{kind:"period"}}/><Field type="month" name="month" label="Salary month" required/></ActionForm></section>}
+ {data.records.map(p=><article key={p.id} className="space-y-4 rounded-lg border bg-white p-5"><Link className="font-semibold text-blue-700" href={`?id=${p.id}`}>{dateKey(p.startDate).slice(0,7)} · {p.currency} · {label(p.status)}</Link><p className="text-sm">{dateKey(p.startDate)} → {dateKey(p.endDate)} (exclusive) · input revision {p.inputRevision} · created {p.createdAt.toISOString().slice(0,10)}</p>
+ {selected && p.status!=="FINALIZED" && <div className="flex flex-wrap gap-5"><ActionForm action={payAction} submitLabel="Calculate / refresh all employees"><Hidden values={{kind:"calculate",periodId:p.id,revision:p.inputRevision}}/></ActionForm>{p.status==="CALCULATED" && <ActionForm action={payAction} submitLabel="Complete review"><Hidden values={{kind:"transition",periodId:p.id,revision:p.inputRevision,status:"REVIEWED"}}/></ActionForm>}{data.isAdmin && ["REVIEWED","APPROVED"].includes(p.status) && <ActionForm action={payAction} submitLabel={p.status==="REVIEWED"?"Approve salary period":"Finalize salary period"}><Hidden values={{kind:"transition",periodId:p.id,revision:p.inputRevision,status:p.status==="REVIEWED"?"APPROVED":"FINALIZED"}}/></ActionForm>}</div>}
+ {selected && <Link className="text-sm text-blue-700" href={`/manage/adjustments?periodId=${p.id}`}>Create or review monthly adjustments</Link>}</article>)}
+ {selected && <section className="space-y-3"><h2 className="text-xl font-semibold">Employee calculations</h2>{!data.calculations.length && <p>No calculations yet. Calculate the complete monthly roster.</p>}{data.calculations.map(r=><article key={r.id} className="flex flex-wrap justify-between gap-3 rounded border bg-white p-4"><Link className="font-medium text-blue-700" href={`/manage/salary/${r.id}`}>{r.employee.legalName}</Link><span>{r.period.status==="FINALIZED"?"Final":"Estimate"} · {r.period.currency} {r.finalAmount}</span>{"snapshot" in r && r.snapshot && r.snapshot.blockers.length>0 && <p className="w-full text-sm text-amber-800">{r.snapshot.blockers.join("; ")}</p>}</article>)}</section>}
+ {!data.records.length && <p>No salary periods yet.</p>}{!selected && <Pager {...data}/>}</>;
+}

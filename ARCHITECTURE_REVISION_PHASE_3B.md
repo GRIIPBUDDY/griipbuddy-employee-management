@@ -1,0 +1,7 @@
+# Phase 3B architecture revision — simple catalogs
+
+The Phase 3B request explicitly requires administrators and HR managers to create, edit, and deactivate departments and positions. This narrowly revises the earlier label-only decision in ARCHITECTURE.md. The original freeze document and existing migrations remain unchanged.
+
+Two independent catalogs provide stable UUID references, unique case-insensitive trimmed names, active status, creator, and timestamps. There is no organizational chart. Employment periods retain their original department and position label snapshots and receive nullable, restrictive foreign keys. Migration 003 backfills existing labels without replacing employee, account, employment, or audit identities. Catalog renaming changes current directory names; historical period labels retain their original values. Deactivation prevents new assignments and preserves existing references. Staff can keep an inactive assignment while editing its other employment details.
+
+Admin and HR_MANAGER manage catalogs through live server authorization, the existing mutation lock, optimistic concurrency, and atomic append-only audits. EMPLOYEE cannot list or mutate catalogs. The existing administrator account form remains compatible: approved staff label assignments resolve or create audited catalog entries within the same transaction. No catalogs can be hard-deleted or have their provenance rewritten. All other frozen permissions, storage, timeline, deployment, and phase boundaries continue to apply.

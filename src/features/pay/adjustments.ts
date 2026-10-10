@@ -1,0 +1,56 @@
+import "server-only";
+import { db } from "@/lib/db/client";
+import { audit } from "@/lib/db/audit";
+import { authorizedMutation } from "@/lib/db/mutation";
+import { securityBoundary } from "@/lib/authorization/actor";
+import { validated,uuidSchema } from "@/lib/validation/schemas";
+import { AppError } from "@/lib/utils/errors";
+import type { Identity } from "@/types/auth";
+import { databaseNow } from "@/features/time/clock";
+import { adjustmentSchema,decisionSchema,listSchema,editAdjustmentSchema } from "./validation";
+import { payStaff,adjustmentReviewer,canCommissionStaff } from "./access";
+import { openPeriod } from "./periods";
+import { money } from "./money";
+import { verifyReconciliation } from "./reconciliation";
+export async function createAdjustment(identity:Identity|null,input:unknown) {
+ await securityBoundary(identity,async a=>payStaff(a));const v=validated(adjustmentSchema,input);
+ return authorizedMutation(identity,async(actor,tx)=>{
+  payStaff(actor);await openPeriod(tx,v.periodId);
+  if(!await tx.employee.findUnique({where:{id:v.employeeId},select:{id:true}}))throw new AppError(404,"NOT_FOUND","Employee not found.");
+  const type=v.type==="ALLOWANCE"?"BONUS":v.type,amount=money(v.amount),old=await tx.salaryAdjustment.findUnique({where:{operationKey:v.operationKey}});
+  if(old){if(old.employeeId!==v.employeeId || old.salaryPeriodId!==v.periodId || old.type!==type || old.amount.toFixed(2)!==amount || old.reason!==v.reason)throw new AppError(409,"OPERATION_REUSED","This request key belongs to a different proposal.");return old.id;}
+  const row=await tx.salaryAdjustment.create({data:{employeeId:v.employeeId,salaryPeriodId:v.periodId,type,amount,reason:v.reason,createdBy:actor.userId,operationKey:v.operationKey}});
+  await audit({actorUserId:actor.userId,employeeId:row.employeeId,action:"SALARY_ADJUSTMENT_CREATED",entity:"salary_adjustments",entityId:row.id,reason:v.reason,after:{type,amount,periodId:v.periodId}},tx);return row.id;
+ });
+}
+export async function decideAdjustment(identity:Identity|null,input:unknown) {
+ await securityBoundary(identity,async a=>payStaff(a));const v=validated(decisionSchema,input);
+ return authorizedMutation(identity,async(actor,tx)=>{
+  const row=await tx.salaryAdjustment.findUnique({where:{id:v.id}});if(!row)throw new AppError(404,"NOT_FOUND","Adjustment not found.");adjustmentReviewer(actor,row.employeeId,row.commissionRelated);await openPeriod(tx,row.salaryPeriodId);
+  if(row.status!=="PENDING" || row.revision!==v.revision || row.includedSalaryCalculationId)throw new AppError(409,"STALE","Refresh this pending adjustment before review.");
+  if(v.decision==="APPROVED" && row.correctsSalaryCalculationId)await verifyReconciliation(tx,row,await databaseNow(tx));
+  const now=await databaseNow(tx);await tx.salaryAdjustment.update({where:{id:row.id},data:{status:v.decision,approvedBy:actor.userId,approvedAt:now,reviewComment:v.comment,revision:{increment:1}}});
+  await audit({actorUserId:actor.userId,employeeId:row.employeeId,action:`SALARY_ADJUSTMENT_${v.decision}`,entity:"salary_adjustments",entityId:row.id,reason:v.comment,before:{status:row.status,revision:row.revision},after:{status:v.decision,amount:row.amount.toFixed(2),revision:row.revision+1}},tx);
+ });
+}
+export async function adjustmentData(identity:Identity|null,query:unknown={}) {
+ return securityBoundary(identity,async actor=>{
+  payStaff(actor);const v=validated(listSchema,query),rows=await db.salaryAdjustment.findMany({where:{...(!canCommissionStaff(actor)?{commissionRelated:false}:{}),...(v.id?{id:v.id}:{}),...(v.status?{status:v.status}:{})},orderBy:{createdAt:"desc"},skip:(v.page-1)*25,take:26,select:{id:true,employeeId:true,salaryPeriodId:true,type:true,amount:true,reason:true,status:true,commissionRelated:true,correctsSalaryCalculationId:true,reconciliationSnapshot:true,operationKey:true,revision:true,includedSalaryCalculationId:true,reviewComment:true}});
+  if(v.id && !rows.length)throw new AppError(404,"NOT_FOUND","Adjustment not found.");
+  return {records:await Promise.all(rows.slice(0,25).map(async r=>({...r,amount:r.amount.toFixed(2),employee:await db.employee.findUniqueOrThrow({where:{id:r.employeeId},select:{legalName:true}}),commissionSources:r.correctsSalaryCalculationId && r.commissionRelated?await db.preorder.findMany({where:{includedSalaryCalculationId:r.correctsSalaryCalculationId},select:{id:true,reference:true}}):[],canDecide:actor.role!=="HR_MANAGER" || actor.employeeId!==r.employeeId}))),page:v.page,hasNext:rows.length>25};
+ });
+}
+export async function adjustmentOptions(identity:Identity|null,periodInput:unknown) {
+ return securityBoundary(identity,async actor=>{payStaff(actor);const id=validated(uuidSchema,periodInput);const p=await db.salaryPeriod.findUnique({where:{id}});if(!p)throw new AppError(404,"NOT_FOUND","Salary period not found.");return {id:p.id,finalized:p.status==="FINALIZED",employees:await db.employee.findMany({orderBy:{legalName:"asc"},take:200,select:{id:true,legalName:true}})};});
+}
+
+export async function editAdjustment(identity:Identity|null,input:unknown) {
+ await securityBoundary(identity,async actor=>payStaff(actor));const v=validated(editAdjustmentSchema,input);
+ return authorizedMutation(identity,async(actor,tx)=>{
+  const row=await tx.salaryAdjustment.findUnique({where:{id:v.id}});if(!row)throw new AppError(404,"NOT_FOUND","Adjustment not found.");payStaff(actor,row.commissionRelated);await openPeriod(tx,row.salaryPeriodId);
+  if(row.includedSalaryCalculationId || row.correctsSalaryCalculationId || row.revision!==v.revision)throw new AppError(409,"STALE","Refresh unincluded manual adjustments. Historical corrections must be recomputed.");
+  if(["BONUS","DEDUCTION"].includes(row.type) && v.amount.startsWith("-"))throw new AppError(400,"AMOUNT_SIGN","Bonus and deduction proposals must be nonnegative.");
+  await tx.salaryAdjustment.update({where:{id:row.id},data:{amount:money(v.amount),reason:v.reason,status:"PENDING",approvedBy:null,approvedAt:null,reviewComment:null,revision:{increment:1}}});
+  await audit({actorUserId:actor.userId,employeeId:row.employeeId,action:"SALARY_ADJUSTMENT_CHANGED",entity:"salary_adjustments",entityId:row.id,reason:v.reason,before:{amount:row.amount.toFixed(2),status:row.status,revision:row.revision},after:{amount:money(v.amount),status:"PENDING",revision:row.revision+1}},tx);
+ });
+}

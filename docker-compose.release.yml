@@ -1,0 +1,5 @@
+# Later authorized deployment: require an immutable registry digest or reviewed local release tag.
+# Build and test the image before taking it to the shared VPS; use up --no-build.
+services:
+  employee-app:
+    image: ${EMPLOYEE_APP_IMAGE:?Set the reviewed immutable application image}

@@ -1,0 +1,20 @@
+import { describe,it,expect } from "vitest";
+import { interval,union,seconds,subtract,intersect,tail,localWeek,windowFor,attendanceMetrics,policyFor } from "@/features/review/calculation";
+const span=(start:number,end:number)=>({start,end});
+describe("exact attendance and overtime intervals",()=>{
+ it("uses whole elapsed seconds for completed sessions",()=>expect(seconds([interval(new Date("2030-01-07T03:00:00Z"),new Date("2030-01-07T05:00:01Z"))])).toBe(7201));
+ it("sums multiple intervals without including breaks",()=>expect(seconds([span(0,10),span(20,30)])).toBe(20));
+ it("unions overlapping and adjacent sessions to prevent double counting",()=>expect(union([span(0,20),span(10,30),span(30,40)])).toEqual([span(0,40)]));
+ it("clips actual work to a local window",()=>expect(intersect([span(0,20)],[span(5,15)])).toEqual([span(5,15)]));
+ it("subtracts approved leave and holidays without duplicate excusals",()=>expect(subtract([span(0,100)],[span(20,40),span(30,50)])).toEqual([span(0,20),span(50,100)]));
+ it("allocates partial overtime from the last candidate seconds",()=>expect(tail([span(10,20),span(30,50)],25)).toEqual([span(15,20),span(30,50)]));
+ it("resolves the retained week-specific threshold and initial policy",()=>{const rows=[{effectiveFrom:"2030-01-07",thresholdSeconds:18000,ruleVersion:1},{effectiveFrom:"2030-01-14",thresholdSeconds:7200,ruleVersion:2}];expect(policyFor(rows,"2030-01-07").thresholdSeconds).toBe(18000);expect(policyFor(rows,"2030-01-14").thresholdSeconds).toBe(7200);expect(policyFor([],"2020-01-06").thresholdSeconds).toBe(144000);});
+ it("rejects malformed / non-monotonic policy history",()=>expect(()=>policyFor([{effectiveFrom:"x",thresholdSeconds:0}],"2030-01-07")).toThrow());
+ it("supports a configured Sunday week boundary",()=>{expect(localWeek("2030-01-07",7)).toBe("2030-01-06");expect(localWeek("2030-01-07",1)).toBe("2030-01-07");});
+ it("splits an overnight interval between local days and weeks",()=>{const work=interval(new Date("2030-01-06T16:00:00Z"),new Date("2030-01-06T20:00:00Z"));expect(seconds(intersect([work],[windowFor("2030-01-06",1,"Asia/Dhaka")]))).toBe(7200);expect(seconds(intersect([work],[windowFor("2030-01-07",7,"Asia/Dhaka")]))).toBe(7200);});
+ it("uses DST elapsed time rather than wall-clock hours",()=>{expect(seconds([windowFor("2026-03-08",1,"America/New_York")])).toBe(23*3600);expect(seconds([windowFor("2026-11-01",1,"America/New_York")])).toBe(25*3600);});
+ it("calculates lateness, early tail and internal missing gaps once",()=>{const m=attendanceMetrics([span(0,100)],[],[span(10,30),span(40,90)],[],200);expect(m).toMatchObject({actualSeconds:70,missingSeconds:30,lateSeconds:10,earlySeconds:10,absenceCount:0});});
+ it("rest and fully excused days create no absence",()=>{expect(attendanceMetrics([],[],[],[],200).absenceCount).toBe(0);expect(attendanceMetrics([span(0,100)],[span(0,100)],[],[],200)).toMatchObject({absenceCount:0,requiredSeconds:0});});
+ it("an open session suppresses finalized absence but never adds worked time",()=>expect(attendanceMetrics([span(0,100)],[],[],[span(10,200)],200)).toMatchObject({actualSeconds:0,absenceCount:0,provisional:true}));
+ it("identifies ended required intervals without attendance",()=>expect(attendanceMetrics([span(0,100)],[],[],[],200).absenceCount).toBe(1));
+});

@@ -1,0 +1,8 @@
+import { it,expect } from "vitest";
+import { csvCell,reportCsv } from "@/features/insights/csv";
+import { redactAudit } from "@/lib/db/audit-redaction";
+import { reportQuery,auditQuery } from "@/features/insights/validation";
+it("neutralizes formula prefixes including whitespace and controls",()=>{for(const value of ["=SUM(1,2)","+cmd","-1+2","@SUM(A1:A2)","  =formula","\u0001=cmd","\t=cmd","\ntext","\rtext"])expect(csvCell(value).startsWith('"\'')).toBe(true);expect(csvCell("Ordinary value")).toBe('"Ordinary value"');});
+it("quotes delimiters, quotes and newlines with an Excel-readable UTF-8 BOM",()=>{expect(reportCsv([{key:"name",label:"Name"}],[{name:'Alice,"A"\nLine'}])).toBe('\uFEFF"Name"\r\n"Alice,""A""\nLine"\r\n');});
+it("masks nested bank and identity values and excludes credentials and file payloads",()=>{const input={bankDetails:{accountNumber:"sensitive"},nested:[{passportNumber:"secret",passwordHash:"hash",storage_key:"private",token:"token",phone:"number"}],revision:2,approvedSeconds:3600};expect(redactAudit(input)).toEqual({bankDetails:"[masked]",nested:[{passportNumber:"[masked]",passwordHash:"[excluded]",storage_key:"[excluded]",token:"[excluded]",phone:"[masked]"}],revision:2,approvedSeconds:3600});expect(input.bankDetails.accountNumber).toBe("sensitive");});
+it("rejects invalid/overposted query fields and unbounded pages",()=>{for(const q of [{employeeId:"bad"},{page:0},{page:10001},{from:"2030-02-30"},{role:"ADMIN"}])expect(reportQuery.safeParse(q).success).toBe(false);expect(auditQuery.safeParse({includeSecrets:true}).success).toBe(false);expect(reportQuery.parse({employeeId:"",from:"",until:""}).employeeId).toBeUndefined();});

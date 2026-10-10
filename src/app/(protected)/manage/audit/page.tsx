@@ -1,0 +1,11 @@
+import Link from "next/link";
+import { getIdentity,pageActor } from "@/lib/auth/request";
+import { pageResult } from "@/lib/auth/page-result";
+import { auditData } from "@/features/insights/audit";
+import { Pagination } from "@/components/insights/common";
+import { Field } from "@/components/ui/field";
+import { displayInstant } from "@/features/time/dates";
+export default async function Page({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
+ const actor=await pageActor(),q=await searchParams,data=await pageResult(auditData(await getIdentity(),q));
+ return <><h1 className="text-3xl font-semibold">Audit review</h1><p className="text-sm text-muted-foreground">{actor.role==="ADMIN"?"Company audit history.":"History for your permitted operational domains."} Events are read-only. Sensitive structured values are masked or excluded. Search covers action, entity, record ID and system source.</p><form className="grid gap-4 rounded-xl border bg-white p-5 sm:grid-cols-2 xl:grid-cols-3">{[["from","From date","date"],["until","Until date (exclusive)","date"],["actorId","Actor user ID","text"],["employeeId","Employee record ID","text"],["action","Action type","text"],["entity","Record type","text"],["recordId","Record ID","text"],["search","Search","search"]].map(([key,label,type])=><Field key={key} name={key} label={label} type={type} defaultValue={typeof q[key]==="string"?q[key]:""}/>)}<div className="flex items-end gap-4"><button className="h-10 rounded-md bg-blue-600 px-4 text-sm font-medium text-white">Apply filters</button><Link className="pb-2 text-sm text-blue-700" href="/manage/audit">Reset</Link></div></form><div className="space-y-3">{data.records.map(row=><article key={row.id} className="space-y-2 rounded-lg border bg-white p-5 text-sm"><Link className="font-semibold text-blue-700" href={`/manage/audit/${row.id}`}>{row.action.replaceAll("_"," ")}</Link><p>{displayInstant(row.eventTime,data.timezone)} · {row.actorName}</p><p className="break-all">{row.entity} · {row.entityId??"—"}{row.employeeName&&` · ${row.employeeName}`}</p></article>)}{!data.records.length&&<p>No permitted audit events match these filters.</p>}</div><Pagination {...data} path="/manage/audit" query={q}/></>;
+}

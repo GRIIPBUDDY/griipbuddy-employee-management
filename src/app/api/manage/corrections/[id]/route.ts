@@ -1,0 +1,4 @@
+import { apiError,requestIdentity,jsonBody } from "@/lib/http";
+import { correctionList,decideCorrection } from "@/features/review/corrections";
+export async function GET(_request:Request, context:{params:Promise<Record<string,string>>}) { try { const result=await correctionList(await requestIdentity(false,true),{},true,(await context.params).id);return Response.json(result??{success:true},{headers:{"Cache-Control":"private, no-store"}}); }catch(error){return apiError(error);} }
+export async function POST(request:Request, context:{params:Promise<Record<string,string>>}) { try { const result=await decideCorrection(await requestIdentity(true,true),{...await jsonBody(request),id:(await context.params).id});return Response.json(result??{success:true},{headers:{"Cache-Control":"private, no-store"}}); }catch(error){return apiError(error);} }

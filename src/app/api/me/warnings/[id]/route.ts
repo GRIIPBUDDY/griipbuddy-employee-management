@@ -1,0 +1,4 @@
+import {apiError,requestIdentity} from "@/lib/http";import {recordData} from "@/features/people-operations/records";
+export async function GET(_:Request,{params}:{params:Promise<{id:string}>}){try{return Response.json(await recordData(await requestIdentity(),"warnings",{id:(await params).id}),{headers:{"Cache-Control":"private, no-store"}});}catch(e){return apiError(e);}}
+import {jsonBody} from "@/lib/http";import {acknowledgeWarning} from "@/features/people-operations/records";import {z} from "zod";import {validated} from "@/lib/validation/schemas";
+export async function POST(request:Request,{params}:{params:Promise<{id:string}>}){try{const identity=await requestIdentity(true),body=validated(z.object({revision:z.number()}).strict(),await jsonBody(request));await acknowledgeWarning(identity,{id:(await params).id,revision:body.revision});return Response.json({success:true},{headers:{"Cache-Control":"private, no-store"}});}catch(e){return apiError(e);}}

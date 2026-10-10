@@ -1,0 +1,32 @@
+# Development override: the database stays internal, with no published port.
+services:
+  employee-app:
+    image: griipbuddy-employee:foundation-dev
+    build: { context: ., target: dependencies }
+    environment:
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: "1"
+    # The on-demand compiler needs more memory than the standalone production server.
+    mem_limit: 1536m
+    cpus: 2
+    command: [sh, -c, "npm run db:generate && npm run dev -- --hostname 0.0.0.0"]
+    read_only: false
+    volumes:
+      # Mount source explicitly: never let Next.js load Compose owner/bootstrap secrets.
+      - ./src:/app/src:ro
+      - ./prisma:/app/prisma:ro
+      - ./scripts:/app/scripts:ro
+      - ./package.json:/app/package.json:ro
+      - ./package-lock.json:/app/package-lock.json:ro
+      - ./prisma.config.ts:/app/prisma.config.ts:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./next.config.ts:/app/next.config.ts:ro
+      - ./postcss.config.mjs:/app/postcss.config.mjs:ro
+      - ./components.json:/app/components.json:ro
+      - employee-node-modules:/app/node_modules
+      - employee-next-dev:/app/.next
+      - employee-prisma-dev:/app/src/generated
+volumes:
+  employee-node-modules: {}
+  employee-next-dev: {}
+  employee-prisma-dev: {}

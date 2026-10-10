@@ -1,0 +1,20 @@
+import { reviewAction } from "@/features/review/actions";
+import { Hidden } from "@/components/review/forms";
+import { policies } from "@/features/review/calculation";
+import { SelectField } from "@/components/ui/field";
+import { getIdentity } from "@/lib/auth/request";
+import { pageResult } from "@/lib/auth/page-result";
+import { securityBoundary } from "@/lib/authorization/actor";
+import { assertRole } from "@/lib/authorization/policy";
+import { organizationSummary, backupStatus } from "@/features/settings/service";
+import { settingsAction } from "@/features/settings/actions";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
+import { ActionForm } from "@/components/ui/action-form";
+export default async function Settings() {
+  const identity = await getIdentity();
+  await pageResult(securityBoundary(identity, async actor => assertRole(actor, ["ADMIN"])));
+  const settings = await pageResult(organizationSummary(identity));
+  const backup = await pageResult(backupStatus(identity));
+  return <><h1 className="text-3xl font-semibold tracking-tight">Organization settings</h1><Card className="max-w-2xl"><CardHeader><CardTitle>Verified offsite backup</CardTitle><CardDescription>{backup.status === "NEVER_VERIFIED" ? "No verified offsite recovery set has been recorded." : backup.status === "STALE" ? "The last verified recovery set is older than 24 hours. Contact the backup operator." : "A verified recovery set was recorded within the last 24 hours."}</CardDescription></CardHeader><CardContent><p className="text-sm">Recovery set time: {backup.lastSuccessfulBackupAt?.toISOString() ?? "Not recorded"}</p><p className="mt-2 text-sm text-muted-foreground">Local dumps do not count as successful offsite backups. The operator records success after encrypted transfer and integrity verification.</p></CardContent></Card><Card className="max-w-2xl"><CardHeader><CardTitle>Company defaults</CardTitle><CardDescription>Business dates follow this timezone. Currency is BDT; week starts follow the retained organization policy.</CardDescription></CardHeader><CardContent><ActionForm action={settingsAction} submitLabel="Save settings"><Field label="Organization name" name="companyName" required maxLength={150} defaultValue={settings.companyName} /><Field label="Organization timezone" name="timezone" required maxLength={100} defaultValue={settings.timezone} /><Field label="Early check-in allowance (minutes)" name="earlyCheckinMinutes" type="number" required min={0} max={60} defaultValue={settings.earlyCheckinMinutes} /></ActionForm><div className="mt-7 space-y-4"><h2 className="font-semibold">Weekly overtime policy</h2><p className="text-sm">Positive overtime always requires review in V1. Leave is not worked time. Append future-week thresholds; historical rules remain intact. Week start is frozen once official records exist.</p><ul className="space-y-2 text-sm">{policies(settings.overtimePolicyVersions).map(p=><li key={p.effectiveFrom}>From {p.effectiveFrom}: {p.thresholdSeconds} seconds / {p.thresholdSeconds/3600} hours · version {p.ruleVersion}</li>)}</ul><ActionForm action={reviewAction} submitLabel="Append future overtime policy"><Hidden values={{kind:"policy"}}/><Field label="Effective week start" name="effectiveFrom" type="date" required/><Field label="Weekly threshold (seconds)" name="thresholdSeconds" type="number" min={1} max={604800} step={1} required defaultValue={144000}/><SelectField label="First day of workweek" name="weekStartDay" defaultValue={settings.weekStartDay}>{["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map((d,i)=><option key={d} value={i+1}>{d}</option>)}</SelectField><Field label="Policy change reason" name="reason" required maxLength={500}/></ActionForm></div></CardContent></Card></>;
+}

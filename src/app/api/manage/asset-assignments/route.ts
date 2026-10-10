@@ -1,0 +1,3 @@
+import {apiError,requestIdentity,jsonBody} from "@/lib/http";import {assignmentData,assignAsset} from "@/features/people-operations/assets";
+export async function GET(request:Request){try{return Response.json(await assignmentData(await requestIdentity(false,true),Object.fromEntries(new URL(request.url).searchParams),true),{headers:{"Cache-Control":"private, no-store"}});}catch(e){return apiError(e);}}
+export async function POST(request:Request){try{return Response.json(await assignAsset(await requestIdentity(true,true),await jsonBody(request)),{status:201,headers:{"Cache-Control":"private, no-store"}});}catch(e){return apiError(e);}}

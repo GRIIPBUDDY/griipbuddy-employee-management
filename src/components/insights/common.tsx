@@ -1,0 +1,19 @@
+import Link from "next/link";
+import { Field,SelectField } from "@/components/ui/field";
+import { Card,CardHeader,CardTitle,CardContent } from "@/components/ui/card";
+import type { reportData } from "@/features/insights/reports";
+import { reportKinds,reportStatuses,type ReportKind } from "@/features/insights/validation";
+import { durationLabel } from "@/features/time/dates";
+export const reportNames:Record<ReportKind,string>={employees:"Employees",attendance:"Attendance",overtime:"Weekly overtime",leave:"Leave",salary:"Salary",commissions:"Commissions",documents:"Document expiry"};
+export function ReportNav({commission}:{commission:boolean}) {return <nav aria-label="Report types" className="flex flex-wrap gap-4 text-sm text-blue-700">{reportKinds.filter(k=>commission||k!=="commissions").map(k=><Link key={k} href={`/manage/reports/${k}`}>{reportNames[k]}</Link>)}</nav>;}
+export function Pagination({page,pages,total,path,query}:{page:number;pages:number;total:number;path:string;query:Record<string,string|string[]|undefined>}) {
+ const href=(number:number)=>{const q=new URLSearchParams(Object.entries(query).filter(([k,v])=>k!=="page"&&typeof v==="string") as [string,string][]);q.set("page",String(number));return `${path}?${q}`;};
+ return <nav aria-label="Pagination" className="flex flex-wrap gap-5 text-sm"><span>Page {page} of {pages} · {total} records</span>{page>1&&<Link className="text-blue-700" href={href(page-1)}>Previous</Link>}{page<pages&&<Link className="text-blue-700" href={href(page+1)}>Next</Link>}</nav>;
+}
+export function ReportFilters({kind,query,employees,departments}:{kind:ReportKind;query:Record<string,string|string[]|undefined>;employees:{id:string;legalName:string;employeeNumber:string}[];departments:{id:string;name:string}[]}) {
+ const v=(key:string)=>typeof query[key]==="string"?query[key]:"";
+ return <Card><CardHeader><CardTitle>Report filters</CardTitle></CardHeader><CardContent><form className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"><Field label="From date" name="from" type="date" defaultValue={v("from")}/><Field label="Until date (exclusive)" name="until" type="date" defaultValue={v("until")}/><SelectField label="Employee" name="employeeId" defaultValue={v("employeeId")}><option value="">All employees</option>{employees.map(e=><option key={e.id} value={e.id}>{e.employeeNumber} · {e.legalName}</option>)}</SelectField><SelectField label="Current department" name="departmentId" defaultValue={v("departmentId")}><option value="">All departments</option>{departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</SelectField><SelectField label="Status" name="status" defaultValue={v("status")}><option value="">All statuses</option>{reportStatuses[kind].map(s=><option key={s}>{s}</option>)}</SelectField><div className="flex items-end gap-4"><button className="h-10 rounded-md bg-blue-600 px-4 text-sm font-medium text-white">Apply filters</button><Link className="pb-2 text-sm text-blue-700" href={`/manage/reports/${kind}`}>Reset</Link></div></form></CardContent></Card>;
+}
+export function ReportTable({data}:{data:Awaited<ReturnType<typeof reportData>>}) {
+ return <Card><CardHeader><CardTitle>Report results</CardTitle></CardHeader><CardContent>{!data.records.length?<p>No records match these filters.</p>:<div className="max-w-full overflow-x-auto" tabIndex={0} aria-label="Scrollable report results"><table className="w-full text-left text-sm"><thead><tr>{data.columns.map(c=><th key={c.key} className="whitespace-nowrap border-b p-3">{c.label.replace(" seconds"," time")}</th>)}</tr></thead><tbody>{data.records.map((row,i)=><tr key={i}>{data.columns.map(c=><td key={c.key} className="whitespace-nowrap border-b p-3">{row[c.key]===null?"—":c.key.endsWith("_seconds")&&typeof row[c.key]==="number"?durationLabel(row[c.key] as number):String(row[c.key])}</td>)}</tr>)}</tbody></table></div>}</CardContent></Card>;
+}
