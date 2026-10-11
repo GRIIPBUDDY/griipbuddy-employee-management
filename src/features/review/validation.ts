@@ -11,10 +11,11 @@ export const correctionSchema=z.object({type:z.enum(["ADD","REPLACE","VOID"]),se
 export const correctionDecisionSchema=z.object({id:uuidSchema,decision:z.enum(["APPROVED","REJECTED"]),comment:reasonSchema}).strict();
 export const withdrawSchema=z.object({id:uuidSchema}).strict();
 export const overtimeCalculationSchema=z.object({employeeId:uuidSchema,week:dateSchema}).strict();
-export const overtimeDecisionSchema=z.object({id:uuidSchema,revision:z.number().int().positive(),decision:z.enum(["APPROVED","REJECTED"]),approvedSeconds:z.number().int().nonnegative(),comment:reasonSchema}).strict();
+export const overtimeDecisionSchema=z.object({id:uuidSchema,revision:z.number().int().positive(),decision:z.enum(["APPROVED","REJECTED"]),approvedSeconds:z.number().int().nonnegative(),comment:z.string().trim().max(500).default("")}).strict().refine(v=>v.decision!=="APPROVED"||v.comment.length>0,"Explain the overtime approval.");
 export const filterSchema=z.object({employeeId:optionalId,departmentId:optionalId,from:dateSchema.optional(),until:dateSchema.optional(),status:z.enum(["","LATE","INCOMPLETE","MISSING","EARLY","PENDING_CORRECTION"]).default(""),overtimeStatus:z.enum(["","PENDING","APPROVED","REJECTED","NOT_REQUIRED","STALE","UNREVIEWED"]).default(""),page:z.coerce.number().int().min(1).max(10000).default(1)}).strict();
 export const ownSummarySchema=z.object({from:dateSchema.optional(),until:dateSchema.optional()}).strict();
 export const listSchema=z.object({status:z.enum(["","PENDING","APPROVED","REJECTED","WITHDRAWN","STALE","NOT_REQUIRED"]).default(""),page:z.coerce.number().int().min(1).max(10000).default(1)}).strict();
+export const overtimeQueueSchema=listSchema.extend({search:z.string().trim().max(150).default("")});
 export const policySchema=z.object({effectiveFrom:dateSchema,thresholdSeconds:z.number().int().min(1).max(604800),weekStartDay:z.number().int().min(1).max(7),reason:reasonSchema}).strict();
 export const leaveCategory=z.enum(["ANNUAL","SICK","PERSONAL","EMERGENCY","UNPAID","OTHER"]);
 export const leaveSchema=z.object({startAt:instant.transform(v=>new Date(v)),endAt:instant.transform(v=>new Date(v)),type:z.enum(["PAID","UNPAID"]),category:leaveCategory.default("OTHER"),operationKey:uuidSchema.optional(),reason:reasonSchema}).strict().refine(v=>v.endAt>v.startAt,"Leave end must follow start.").refine(v=>v.category!=="UNPAID"||v.type==="UNPAID","Unpaid leave must use unpaid treatment.");

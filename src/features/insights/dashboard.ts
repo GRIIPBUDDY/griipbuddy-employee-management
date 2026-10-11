@@ -15,6 +15,7 @@ import { commissionData } from "@/features/pay/commissions";
 import { notificationPage } from "@/features/review/notifications";
 import { auditData } from "./audit";
 import { employeeCte } from "./employees";
+import { taskData } from "@/features/tasks/service";
 export async function managementDashboard(identity:Identity|null) {
  return securityBoundary(identity,async actor=>{
   assertRole(actor,["ADMIN","HR_MANAGER"]);
@@ -54,6 +55,8 @@ export async function personalDashboard(identity:Identity|null) {
   const [schedule,overtime,leave,notifications,salary,commissions]=await Promise.all([ownSchedule(identity),ownOvertime(identity),absenceData(identity),notificationPage(identity),salaryData(identity,{},true),actor.preorderCommissionEnabled?commissionData(identity):Promise.resolve(null)]);
   const start=schedule?dayStart(schedule.today,schedule.timezone):null,end=schedule?dayStart(addDays(schedule.today,1),schedule.timezone):null;
   const todaySessions=schedule&&start&&end?schedule.recent.filter(s=>s.checkinAt<end&&(!s.checkoutAt||s.checkoutAt>start)):[];
-  return {earnings:await monthToDate(identity),schedule,todaySessions,overtime,leave:leave.records.slice(0,5),notifications:{...notifications,records:notifications.records.slice(0,5)},salary:salary.records.slice(0,1),commissions:actor.preorderCommissionEnabled?commissions?.records.slice(0,3)??[]:undefined};
+  const taskLists=schedule?await Promise.all(["ASSIGNED","IN_PROGRESS"].map(status=>taskData(identity,{from:"1900-01-01",until:addDays(schedule.today,1),status},true))):[];
+  const tasks=taskLists.flatMap(list=>list.records).sort((a,b)=>(a.dueDate?.getTime()??Infinity)-(b.dueDate?.getTime()??Infinity)).slice(0,5);
+  return {earnings:await monthToDate(identity),schedule,todaySessions,tasks,overtime,leave:leave.records.slice(0,5),notifications:{...notifications,records:notifications.records.slice(0,5)},salary:salary.records.slice(0,1),commissions:actor.preorderCommissionEnabled?commissions?.records.slice(0,3)??[]:undefined};
  });
 }

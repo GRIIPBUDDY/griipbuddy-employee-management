@@ -9,6 +9,7 @@ import { submitCorrection,decideCorrection,withdrawCorrection } from "./correcti
 import { calculateOvertime,decideOvertime,updateOvertimePolicy } from "./overtime";
 import { requestLeave,requestDatedLeave,decideLeave,withdrawLeave,saveHoliday } from "./absence";
 import { readNotification,readAllNotifications } from "./notifications";
+import { overtimeDecisionFromForm } from "./decision-input";
 export async function reviewAction(_:ActionState,form:FormData):Promise<ActionState> {
  try{
   await assertMutationOrigin();const identity=await getIdentity(),settings=await organizationSummary(identity),text=(k:string)=>String(form.get(k)??"");
@@ -18,7 +19,7 @@ export async function reviewAction(_:ActionState,form:FormData):Promise<ActionSt
    case "correctionDecision":await decideCorrection(identity,{id:text("id"),decision:text("decision"),comment:text("comment")});break;
    case "correctionWithdraw":await withdrawCorrection(identity,{id:text("id")});break;
    case "calculate":await calculateOvertime(identity,{employeeId:text("employeeId"),week:text("week")});break;
-   case "overtimeDecision":await decideOvertime(identity,{id:text("id"),revision:Number(text("revision")),decision:text("decision"),approvedSeconds:Number(text("approvedHours"))*3600+Number(text("approvedMinutes"))*60+Number(text("approvedRemainder")),comment:text("comment")});break;
+   case "overtimeDecision":await decideOvertime(identity,overtimeDecisionFromForm(form));break;
    case "policy":await updateOvertimePolicy(identity,{effectiveFrom:text("effectiveFrom"),thresholdSeconds:Number(text("thresholdSeconds")),weekStartDay:Number(text("weekStartDay")),reason:text("reason")});break;
    case "leave":await requestLeave(identity,{startAt:local("startAt"),endAt:local("endAt"),type:text("type"),reason:text("reason")});break;
    case "datedLeave":await requestDatedLeave(identity,{startDate:text("startDate"),endDate:text("endDate"),type:text("type"),category:text("category"),reason:text("reason"),operationKey:text("operationKey")});break;
@@ -29,6 +30,6 @@ export async function reviewAction(_:ActionState,form:FormData):Promise<ActionSt
    case "notification":await readNotification(identity,text("id"));break;
    default:throw new AppError(400,"VALIDATION","Unknown action.");
   }
-  revalidatePath("/","layout");return {success:"Saved. Attendance and review information is up to date."};
+  revalidatePath("/","layout");return {success:text("kind")==="overtimeDecision"?text("decision")==="REJECTED"?"Overtime rejected. No payable overtime was approved. The employee has been notified.":"Overtime approved. The employee has been notified.":"Saved. Attendance and review information is up to date."};
  }catch(error){return {error:safeMessage(error)};}
 }

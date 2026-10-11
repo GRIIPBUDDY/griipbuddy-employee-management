@@ -2,10 +2,11 @@ import { getIdentity } from "@/lib/auth/request";
 import { pageResult } from "@/lib/auth/page-result";
 import { correctionOptions } from "@/features/review/corrections";
 import { CorrectionFields } from "./correction-fields";
+import { DecisionForm } from "./decision-form";
 import { Temporal } from "@js-temporal/polyfill";
 import { randomUUID } from "node:crypto";
 import { ActionForm } from "@/components/ui/action-form";
-import { Field,SelectField } from "@/components/ui/field";
+import { Field } from "@/components/ui/field";
 import { Card,CardHeader,CardTitle,CardContent,CardDescription } from "@/components/ui/card";
 import { reviewAction } from "@/features/review/actions";
 import { displayInstant,dateKey,durationLabel,minuteLabel } from "@/features/time/dates";
@@ -23,13 +24,7 @@ export async function CorrectionForm({employeeId,sessionId="",workDate=""}:{time
   <Field name="reason" label="Explanation and supporting evidence" required maxLength={500}/>
  </ActionForm></CardContent></Card>;
 }
-export function DecisionForm({kind,id,revision,amount=0,max=0}:{kind:"correctionDecision"|"overtimeDecision"|"leaveDecision";id:string;revision?:number;amount?:number;max?:number}) {
- return <ActionForm action={reviewAction} submitLabel="Save review decision"><Hidden values={{kind,id,...(revision?{revision}:{})}}/>
-  <SelectField label="Decision" name="decision"><option value="APPROVED">Approve</option><option value="REJECTED">Reject</option></SelectField>
-  {kind==="overtimeDecision" && <div className="grid gap-3 sm:grid-cols-3"><Field label="Approved overtime hours" name="approvedHours" type="number" min={0} max={Math.ceil(max/3600)} step={1} required defaultValue={Math.floor(amount/3600)}/><Field label="Approved overtime minutes" name="approvedMinutes" type="number" min={0} max={59} step={1} required defaultValue={Math.floor(amount%3600/60)}/><Field label="Approved overtime seconds" name="approvedRemainder" type="number" min={0} max={59} step={1} required defaultValue={amount%60}/><p className="text-xs text-muted-foreground sm:col-span-3">For rejection, enter zero for all three amounts.</p></div>}
-  <Field label={kind==="leaveDecision"?"Review comment (optional)":"Review comment / reason"} name="comment" required={kind!=="leaveDecision"} maxLength={500}/>
- </ActionForm>;
-}
+export { DecisionForm } from "./decision-form";
 export function CorrectionRequests({data,staff,timezone}:{data:Awaited<ReturnType<typeof correctionList>>;staff:boolean;timezone:string}) {
  return <>{data.records.map(r=><Card key={r.id}><CardHeader><CardTitle>{r.employee?.legalName??"Attendance correction"} · {r.type} · {r.status}</CardTitle><CardDescription>{dateKey(r.workDate)} · submitted {displayInstant(r.createdAt,timezone)}</CardDescription></CardHeader><CardContent className="space-y-4 text-sm">
   <p>{r.reason}</p>

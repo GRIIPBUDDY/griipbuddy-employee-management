@@ -85,7 +85,8 @@ try {
   check(!dashboardHtml.includes('href="/manage/accounts"') && !dashboardHtml.includes('href="/me/commissions"'), "Employee nav must omit management and disabled commission access.");
   check((await alice.request(`/manage/employees/${aliceId}`)).ok, "Scoped profile access must allow the own ID.");
   const other = await alice.request(`/manage/employees/${bobId}`);
-  check(other.status === 404 && !(await other.text()).includes("Bob HTTP Private"), "Tampered URLs must return 404 with no other employee data.");
+  const otherHtml=await other.text();
+  check(other.status === 404 && !otherHtml.includes("Bob HTTP Private"), `Tampered URLs must return 404 with no other employee data (status ${other.status}, foreign data ${otherHtml.includes("Bob HTTP Private")}).`);
   check((await alice.request("/manage/employees")).status === 403, "Employees must receive a server-side directory rejection.");
   check((await alice.request("/manage/accounts")).status === 403, "Employees must receive a server-side account rejection.");
   check((await alice.request("/me/commissions")).status === 404, "Disabled features must reject direct requests.");

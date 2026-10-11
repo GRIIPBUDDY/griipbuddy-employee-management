@@ -1,0 +1,7 @@
+"use client";
+import { useId, useState } from "react";
+import { cn } from "@/lib/utils/cn";
+export function Tabs({items}:{items:{label:string;content:React.ReactNode}[]}){
+ const [selected,setSelected]=useState(0),id=useId();
+ return <div><div role="tablist" aria-label="Dashboard views" className="mb-6 flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl border bg-white p-1">{items.map((item,index)=><button key={item.label} id={`${id}-${index}-tab`} type="button" role="tab" aria-selected={selected===index} aria-controls={`${id}-${index}-panel`} tabIndex={selected===index?0:-1} className={cn("min-h-10 whitespace-nowrap rounded-lg px-4 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2",selected===index?"bg-slate-900 text-white":"text-muted-foreground hover:bg-slate-100")} onClick={()=>setSelected(index)} onKeyDown={e=>{let next:number;if(e.key==="ArrowRight")next=(index+1)%items.length;else if(e.key==="ArrowLeft")next=(index+items.length-1)%items.length;else if(e.key==="Home")next=0;else if(e.key==="End")next=items.length-1;else return;e.preventDefault();setSelected(next);document.getElementById(`${id}-${next}-tab`)?.focus();}}>{item.label}</button>)}</div>{items.map((item,index)=><section key={item.label} role="tabpanel" id={`${id}-${index}-panel`} aria-labelledby={`${id}-${index}-tab`} hidden={selected!==index} tabIndex={0}>{item.content}</section>)}</div>;
+}

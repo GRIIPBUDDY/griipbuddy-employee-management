@@ -18,12 +18,12 @@ export default async function Accounts() {
       </ActionForm>
     </CardContent></Card>
     <div className="space-y-4">{accounts.map(account => <Card key={account.id}><CardHeader><CardTitle>{account.employee?.legalName ?? account.displayName ?? "Staff account"}</CardTitle><CardDescription>{account.email} · {account.mustChangePassword ? "Password change required" : "Password configured"}</CardDescription></CardHeader><CardContent><div className="grid gap-8 xl:grid-cols-2">
-      <ActionForm action={securityAction} submitLabel="Save access"><input type="hidden" name="userId" value={account.id} /><SelectField label="Role" name="role" defaultValue={account.role}><Roles /></SelectField>
+      <ActionForm action={securityAction} submitLabel="Save access" confirmation={{title:"Update account access?",description:"Changes to role or active status affect this person’s access and revoke existing sessions. Confirm these settings before saving.",label:"Confirm access change"}}><input type="hidden" name="userId" value={account.id} /><SelectField label="Role" name="role" defaultValue={account.role}><Roles /></SelectField>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="isActive" defaultChecked={account.isActive} />Active account</label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="canManageCommissions" defaultChecked={account.canManageCommissions} />HR commission management grant</label>
         {account.employee && <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="preorderCommissionEnabled" defaultChecked={account.employee.preorderCommissionEnabled} />Employee pre-order commission access</label>}
       </ActionForm>
-      <ActionForm action={resetPasswordAction} submitLabel="Reset temporary password" resetOnSuccess><input type="hidden" name="userId" value={account.id} /><Field label="New temporary password" name="temporaryPassword" type="password" autoComplete="new-password" required minLength={12} maxLength={128} /><p className="text-sm text-muted-foreground">Distribute through an existing verified company channel. Resetting revokes all sessions.</p></ActionForm>
+      <ActionForm action={resetPasswordAction} submitLabel="Reset temporary password" confirmation={{title:"Reset this password?",description:"This revokes existing sessions and requires a password change at next login. Share the temporary password through your verified company channel.",label:"Reset password",destructive:true}} resetOnSuccess><input type="hidden" name="userId" value={account.id} /><Field label="New temporary password" name="temporaryPassword" type="password" autoComplete="new-password" required minLength={12} maxLength={128} /><p className="text-sm text-muted-foreground">Distribute through an existing verified company channel. Resetting revokes all sessions.</p></ActionForm>
     </div></CardContent></Card>)}</div>
   </>;
 }

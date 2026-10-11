@@ -11,7 +11,7 @@ import { addDays, dateKey, dateValue, dayStart, localDate } from "@/features/tim
 import type { Actor,Identity } from "@/types/auth";
 import { weekCalculation } from "./summary";
 import { localWeek, policies, tail } from "./calculation";
-import { overtimeCalculationSchema,overtimeDecisionSchema,policySchema,listSchema } from "./validation";
+import { overtimeCalculationSchema,overtimeDecisionSchema,policySchema,overtimeQueueSchema } from "./validation";
 import { notify } from "./notifications";
 export function reviewer(actor:Actor,employeeId:string) {
  assertRole(actor,["ADMIN","HR_MANAGER"]);
@@ -81,7 +81,7 @@ export async function overtimeData(identity:Identity|null,employeeIdInput:unknow
    const current=await weekCalculation(tx,employeeId,value.week,await databaseNow(tx));const row=await tx.overtimeReview.findUnique({where:{employeeId_weekStartDate:{employeeId,weekStartDate:dateValue(current.week)}}});
    const stale=!!row && (row.status==="STALE" || row.actualSecondsSnapshot!==current.actualSeconds || row.thresholdSeconds!==current.thresholdSeconds || row.policyVersion!==current.policyVersion || current.blockers.length>0);
    return {employee,current,row:row?{id:row.id,status:stale?"STALE":row.status,revision:row.revision,approvedSeconds:row.approvedSeconds,actualSecondsSnapshot:row.actualSecondsSnapshot,potentialSecondsSnapshot:row.potentialSecondsSnapshot,reviewedAt:row.reviewedAt,reviewComment:row.reviewComment}:null,
-    activeApprovedSeconds:row?.status==="APPROVED" && !stale?row.approvedSeconds:0,allocation:row?.status==="APPROVED" && !stale?tail(current.candidates,row.approvedSeconds):[],canDecide:!own && !(actor.role==="HR_MANAGER" && actor.employeeId===employeeId)};
+    activeApprovedSeconds:row?.status==="APPROVED" && !stale?row.approvedSeconds:0,allocation:row?.status==="APPROVED" && !stale?tail(current.candidates,row.approvedSeconds):[],canDecide:!own && !(actor.role==="HR_MANAGER" && actor.employeeId===employeeId),decisionBlockReason:actor.role==="HR_MANAGER" && actor.employeeId===employeeId?"An administrator must review your own overtime.":null};
   },{isolationLevel:"RepeatableRead"});
  });
 }
@@ -100,8 +100,9 @@ export async function updateOvertimePolicy(identity:Identity|null,input:unknown)
  });
 }
 export async function overtimeQueue(identity:Identity|null,query:unknown={}) {
- return securityBoundary(identity,async actor=>{assertRole(actor,["ADMIN","HR_MANAGER"]);const v=validated(listSchema,query);
- const rows=await db.overtimeReview.findMany({where:v.status?{status:v.status}:{},orderBy:[{weekStartDate:"desc"},{id:"desc"}],skip:(v.page-1)*25,take:26,select:{id:true,employeeId:true,weekStartDate:true,status:true,revision:true,approvedSeconds:true,actualSecondsSnapshot:true,potentialSecondsSnapshot:true,thresholdSeconds:true}});
+ return securityBoundary(identity,async actor=>{assertRole(actor,["ADMIN","HR_MANAGER"]);const v=validated(overtimeQueueSchema,query);
+ const matches=v.search?await db.employee.findMany({where:{OR:[{legalName:{contains:v.search,mode:"insensitive"}},{employeeNumber:{contains:v.search,mode:"insensitive"}}]},select:{id:true}}):null;
+ const rows=await db.overtimeReview.findMany({where:{...(v.status?{status:v.status}:{}),...(matches?{employeeId:{in:matches.map(e=>e.id)}}:{})},orderBy:[{weekStartDate:"desc"},{id:"desc"}],skip:(v.page-1)*25,take:26,select:{id:true,employeeId:true,weekStartDate:true,status:true,revision:true,approvedSeconds:true,actualSecondsSnapshot:true,potentialSecondsSnapshot:true,thresholdSeconds:true}});
  return {records:await Promise.all(rows.slice(0,25).map(async r=>({...r,employee:await db.employee.findUniqueOrThrow({where:{id:r.employeeId},select:{legalName:true}})}))),hasNext:rows.length>25,page:v.page};});
 }
 export async function ownOvertime(identity:Identity|null,query:unknown={}) {
