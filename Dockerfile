@@ -12,7 +12,7 @@ FROM dependencies AS build
 COPY --chown=node:node . .
 ENV NEXT_TELEMETRY_DISABLED=1
 # No database access or secrets are needed to produce the image.
-# Webpack also supports cross-architecture builds under CPU emulation.
+# Use the same production compiler as the release HTTP acceptance test.
 RUN npm run db:generate && node node_modules/next/dist/bin/next build --webpack
 RUN npm prune --omit=dev
 
