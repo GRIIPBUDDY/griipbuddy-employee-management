@@ -30,10 +30,10 @@ export async function invalidateOvertime(tx:Database,employeeId:string,actorUser
  }
  void now;
 }
-async function calculate(tx:Database,actor:Actor,employeeId:string,week:string,now:Date) {
+export async function calculateOvertimeInTransaction(tx:Database,actor:Actor,employeeId:string,week:string,now:Date,allowOpen=false) {
  if(!await tx.employee.findUnique({where:{id:employeeId},select:{id:true}})) throw new AppError(404,"NOT_FOUND","Employee not found.");
  const input=await weekCalculation(tx,employeeId,week,now);
- if(!input.ended) throw new AppError(409,"WEEK_OPEN","Weekly review is available after the organization-local workweek ends.");
+ if(!input.ended && !allowOpen) throw new AppError(409,"WEEK_OPEN","Weekly review is available after the organization-local workweek ends.");
  if(input.blockers.length) throw new AppError(409,"UNRESOLVED_ATTENDANCE",`Resolve attendance first: ${input.blockers.join("; ")}.`);
  let old=await tx.overtimeReview.findUnique({where:{employeeId_weekStartDate:{employeeId,weekStartDate:dateValue(input.week)}}});
  if(old && old.status!=="STALE" && old.actualSecondsSnapshot===input.actualSeconds && old.thresholdSeconds===input.thresholdSeconds && old.policyVersion===input.policyVersion) return {row:old,input};
@@ -52,7 +52,7 @@ async function calculate(tx:Database,actor:Actor,employeeId:string,week:string,n
 export async function calculateOvertime(identity:Identity|null,input:unknown) {
  await securityBoundary(identity,async actor=>assertRole(actor,["ADMIN","HR_MANAGER"]));
  const value=validated(overtimeCalculationSchema,input);
- return authorizedMutation(identity,async(actor,tx)=>{assertRole(actor,["ADMIN","HR_MANAGER"]);await tx.$queryRaw`SELECT id FROM employees WHERE id=${value.employeeId}::uuid FOR UPDATE`;return (await calculate(tx,actor,value.employeeId,value.week,await databaseNow(tx))).row;});
+ return authorizedMutation(identity,async(actor,tx)=>{assertRole(actor,["ADMIN","HR_MANAGER"]);await tx.$queryRaw`SELECT id FROM employees WHERE id=${value.employeeId}::uuid FOR UPDATE`;return (await calculateOvertimeInTransaction(tx,actor,value.employeeId,value.week,await databaseNow(tx))).row;});
 }
 export async function decideOvertime(identity:Identity|null,input:unknown) {
  await securityBoundary(identity,async actor=>assertRole(actor,["ADMIN","HR_MANAGER"]));

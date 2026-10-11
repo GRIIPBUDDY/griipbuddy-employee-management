@@ -21,6 +21,10 @@ async function sourceHref(client:Database,actor:Actor,row:{eventType:string,sour
  const staff=row.eventType.startsWith("STAFF_");
  if(staff && actor.role!=="ADMIN" && actor.role!=="HR_MANAGER" || !staff && actor.employeeId!==row.employeeId)return null;
  const where={id:row.sourceId,employeeId:row.employeeId},prefix=staff?"/manage":"/me";
+ if(row.sourceType==="employees")return row.sourceId===row.employeeId?`${prefix}${staff?`/employees/${row.employeeId}`:""}`:null;
+ if(row.sourceType==="weekly_earning_statements")return await client.weeklyEarningStatement.findFirst({where:{...where,...(!staff?{status:"FINALIZED"}:{})},select:{id:true}})?`${prefix}/weekly-earnings`:null;
+ if(row.sourceType==="shift_swap_requests")return await client.shiftSwapRequest.findFirst({where:{id:row.sourceId,OR:[{requesterEmployeeId:row.employeeId},{partnerEmployeeId:row.employeeId}]},select:{id:true}})?`${prefix}/shift-swaps`:null;
+ if(row.sourceType==="task_assignments")return await client.taskAssignment.findFirst({where,select:{id:true}})?`${prefix}/tasks`:null;
  if(row.sourceType==="performance_reviews")return await client.performanceReview.findFirst({where:{...where,...(!staff?{publishedAt:{not:null},employeeVisible:true}:{})},select:{id:true}})?`${prefix}/performance?id=${row.sourceId}`:null;
  if(row.sourceType==="disciplinary_records")return await client.disciplinaryRecord.findFirst({where:{...where,...(!staff?{publishedAt:{not:null},employeeVisible:true,revokedAt:null}:{})},select:{id:true}})?`${prefix}/warnings?id=${row.sourceId}`:null;
  if(row.sourceType==="asset_assignments")return await client.assetAssignment.findFirst({where,select:{id:true}})?`${prefix}/assets?assignmentId=${row.sourceId}`:null;

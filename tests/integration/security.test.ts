@@ -54,12 +54,12 @@ describe("actual PostgreSQL-backed server operations", () => {
   });
   it("rejects feature access, then observes current grants without a new JWT", async () => {
     const { commissionExample } = await import("@/features/people/data");
-    await expect(commissionExample(alice)).rejects.toMatchObject({ code: "FEATURE_DENIED", status: 403 });
+    await expect(commissionExample(alice)).rejects.toMatchObject({ code: "NOT_FOUND", status: 404 });
     await expect(commissionExample(hr, true)).rejects.toMatchObject({ status: 403 });
     await db.employee.update({ where: { id: aliceEmployee }, data: { preorderCommissionEnabled: true } });
     expect(await commissionExample(alice)).toMatchObject({ enabled: true });
     await db.employee.update({ where: { id: aliceEmployee }, data: { preorderCommissionEnabled: false } });
-    await expect(commissionExample(alice)).rejects.toMatchObject({ status: 403 });
+    await expect(commissionExample(alice)).rejects.toMatchObject({ status: 404 });
     await db.user.update({ where: { id: hr.userId }, data: { canManageCommissions: true } });
     expect(await commissionExample(hr, true)).toMatchObject({ enabled: true });
     await db.user.update({ where: { id: hr.userId }, data: { canManageCommissions: false } });

@@ -3,6 +3,7 @@ export type Identity = { userId: string; sessionVersion: number; issuedAt: numbe
 export type Actor = Identity & {
   role: Role;
   isActive: boolean;
+  accountStatus?: "ACTIVE" | "ON_HOLD" | "SUSPENDED";
   name: string;
   email: string;
   mustChangePassword: boolean;

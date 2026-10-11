@@ -10,6 +10,10 @@ export function visibleNotifications(actor: Actor) {
  return Prisma.sql`n.recipient_user_id = ${actor.userId}::uuid AND
   ((starts_with(n.event_type, 'STAFF_') AND ${staff}) OR
    (NOT starts_with(n.event_type, 'STAFF_') AND n.employee_id = ${actor.employeeId}::uuid)) AND (
+  (n.source_type = 'employees' AND EXISTS (SELECT 1 FROM employees s WHERE s.id=n.source_id AND s.id=n.employee_id)) OR
+  (n.source_type = 'weekly_earning_statements' AND EXISTS (SELECT 1 FROM weekly_earning_statements s WHERE s.id=n.source_id AND s.employee_id=n.employee_id AND (NOT starts_with(n.event_type, 'STAFF_') AND s.status='FINALIZED' OR starts_with(n.event_type, 'STAFF_') AND (${commissionStaff} OR s.calculation_snapshot->>'commissionRelated'='false')))) OR
+  (n.source_type = 'shift_swap_requests' AND EXISTS (SELECT 1 FROM shift_swap_requests s WHERE s.id=n.source_id AND n.employee_id IN (s.requester_employee_id,s.partner_employee_id))) OR
+  (n.source_type = 'task_assignments' AND EXISTS (SELECT 1 FROM task_assignments s WHERE s.id=n.source_id AND s.employee_id=n.employee_id)) OR
   (n.source_type = 'performance_reviews' AND EXISTS (SELECT 1 FROM performance_reviews s WHERE s.id=n.source_id AND s.employee_id=n.employee_id AND (starts_with(n.event_type, 'STAFF_') OR s.published_at IS NOT NULL AND s.employee_visible))) OR
   (n.source_type = 'disciplinary_records' AND EXISTS (SELECT 1 FROM disciplinary_records s WHERE s.id=n.source_id AND s.employee_id=n.employee_id AND (starts_with(n.event_type, 'STAFF_') OR s.published_at IS NOT NULL AND s.employee_visible AND s.revoked_at IS NULL))) OR
   (n.source_type = 'asset_assignments' AND EXISTS (SELECT 1 FROM asset_assignments s WHERE s.id=n.source_id AND s.employee_id=n.employee_id)) OR

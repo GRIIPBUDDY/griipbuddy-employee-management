@@ -45,7 +45,7 @@ export async function summary(tx:Database, employeeId:string, from:string, until
  const employment=periods.map(p=>interval(dayStart(dateKey(p.startDate),zone),p.endDate?dayStart(dateKey(p.endDate),zone):new Date(sourceWindow.end*1000)));
  const leaveConflictSeconds=seconds(intersect(actual,leaveIntervals)),outsideEmploymentSeconds=seconds(subtract(actual,employment));
  const excused=subtract(scheduled,required);
- const paidAbsence=intersect(subtract(union([...intersect(scheduled,leaves.filter(l=>l.type==="PAID").map(l=>interval(l.startAt,l.endAt))),...holidayCredit]),[...actualSource,...leaves.filter(l=>l.type==="UNPAID").map(l=>interval(l.startAt,l.endAt))]),[window]);
+ const paidAbsence=intersect(subtract(union([...intersect(scheduled,leaves.filter(l=>l.type==="PAID" && settings.paidLeaveCountsForBase).map(l=>interval(l.startAt,l.endAt))),...holidayCredit]),[...actualSource,...leaves.filter(l=>l.type==="UNPAID").map(l=>interval(l.startAt,l.endAt))]),[window]);
  const requestTouches=(r:typeof pending[number],report:Interval,date?:string)=>{
   if(date && dateKey(r.workDate)===date)return true;
   if(r.proposedCheckinAt && r.proposedCheckoutAt && seconds(intersect([interval(r.proposedCheckinAt,r.proposedCheckoutAt)],[report])))return true;
@@ -72,7 +72,9 @@ export async function summary(tx:Database, employeeId:string, from:string, until
 export async function weekCalculation(tx:Database,employeeId:string,date:string,now:Date) {
  const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),week=localWeek(date,settings.weekStartDay),end=addDays(week,7);
  const totals=await summary(tx,employeeId,week,end,now),policy=policyFor(settings.overtimePolicyVersions,week);
- const potentialSeconds=Math.max(0,totals.actualSeconds-policy.thresholdSeconds);
+ const thresholdCandidates=tail(totals.actual,Math.max(0,totals.actualSeconds-policy.thresholdSeconds));
+ const candidates=week>=localWeek(dateKey(settings.earningsEffectiveFrom),settings.weekStartDay)?union([...thresholdCandidates,...subtract(totals.actual,totals.scheduled)]):thresholdCandidates;
+ const potentialSeconds=seconds(candidates);
  const blockers=[...(totals.openCount?["Missing checkout"]:[]),...(totals.pendingCorrections?["Pending corrections"]:[]),...(totals.leaveConflictSeconds?["Work overlaps approved leave"]:[]),...(totals.outsideEmploymentSeconds?["Work extends outside employment"]:[]),...totals.issues];
- return {...totals,week,weekEnd:end,thresholdSeconds:policy.thresholdSeconds,policyVersion:policy.ruleVersion,potentialSeconds,candidates:tail(totals.actual,potentialSeconds),ended:now>=dayStart(end,settings.timezone),blockers};
+ return {...totals,week,weekEnd:end,thresholdSeconds:policy.thresholdSeconds,policyVersion:policy.ruleVersion,potentialSeconds,candidates,ended:now>=dayStart(end,settings.timezone),blockers};
 }

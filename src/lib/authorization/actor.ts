@@ -12,7 +12,7 @@ export async function loadActor(identity: Identity | null, client: Database = db
   assertIdentity(identity);
   validated(uuidSchema, identity.userId);
   const account = await client.user.findUnique({ where: { id: identity.userId }, select: {
-    id: true, email: true, displayName: true, role: true, isActive: true, sessionVersion: true, mustChangePassword: true,
+    id: true, email: true, displayName: true, role: true, isActive: true, accountStatus: true, sessionVersion: true, mustChangePassword: true,
     temporaryPasswordExpiresAt: true, canManageCommissions: true,
     employee: { select: { id: true, legalName: true, preferredName: true, preorderCommissionEnabled: true,
       employmentPeriods: { select: { startDate: true, endDate: true } } } },
@@ -24,7 +24,7 @@ export async function loadActor(identity: Identity | null, client: Database = db
   if (!settings) throw new Error("Organization is not initialized");
   const today = businessDate(settings.timezone);
   const actor: Actor = {
-    ...identity, sessionVersion: account.sessionVersion, role: account.role, isActive: account.isActive, email: account.email,
+    ...identity, sessionVersion: account.sessionVersion, role: account.role, isActive: account.isActive, accountStatus: account.accountStatus, email: account.email,
     name: account.employee?.preferredName ?? account.employee?.legalName ?? account.displayName ?? "Team member",
     mustChangePassword: account.mustChangePassword, employeeId: account.employee?.id ?? null,
     employmentActive: account.employee?.employmentPeriods.some(p => p.startDate <= today && (!p.endDate || today < p.endDate)) ?? false,

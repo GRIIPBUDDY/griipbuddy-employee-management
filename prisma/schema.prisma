@@ -13,6 +13,12 @@ enum Role {
   EMPLOYEE
 }
 
+enum AccountStatus {
+  ACTIVE
+  ON_HOLD
+  SUSPENDED
+}
+
 enum CommissionRuleType {
   FIXED
   PERCENT
@@ -25,6 +31,7 @@ model User {
   passwordHash               String    @map("password_hash")
   role                       Role      @default(EMPLOYEE)
   isActive                   Boolean   @default(true) @map("is_active")
+  accountStatus              AccountStatus @default(ACTIVE) @map("account_status")
   canManageCommissions       Boolean   @default(false) @map("can_manage_commissions")
   sessionVersion             Int       @default(1) @map("session_version")
   mustChangePassword         Boolean   @default(true) @map("must_change_password")
@@ -190,6 +197,9 @@ model OrganizationSettings {
   commissionRuleType     CommissionRuleType @default(FIXED) @map("commission_rule_type")
   commissionRuleValue    Decimal            @default(0) @map("commission_rule_value") @db.Decimal(18, 4)
   weekStartDay           Int @default(1) @map("week_start_day") @db.SmallInt
+  standardHoursVersions Json @default("[{\"effectiveFrom\":\"1900-01-01\",\"hours\":48}]") @map("standard_hours_versions")
+  paidLeaveCountsForBase Boolean @default(true) @map("paid_leave_counts_for_base")
+  earningsEffectiveFrom DateTime @default(dbgenerated("date_trunc('month', CURRENT_DATE)::date")) @map("earnings_effective_from") @db.Date
   rulesVersion           Int                @default(1) @map("rules_version")
   changedBy              String             @map("changed_by") @db.Uuid
   lastSuccessfulBackupAt DateTime?          @map("last_successful_backup_at") @db.Timestamptz(3)
@@ -515,6 +525,7 @@ model CompensationRate {
  baseAmount Decimal @map("base_amount") @db.Decimal(18,4)
  currency String @db.Char(3)
  overtimeHourlyEquivalent Decimal? @map("overtime_hourly_equivalent") @db.Decimal(18,4)
+ overtimeHourlyRate Decimal? @map("overtime_hourly_rate") @db.Decimal(18,4)
  overtimeMultiplier Decimal @default(1) @map("overtime_multiplier") @db.Decimal(8,4)
  changeReason String @map("change_reason") @db.VarChar(500)
  createdBy String @map("created_by") @db.Uuid
@@ -525,6 +536,12 @@ model CompensationRate {
  @@map("compensation_rates")
 }
 model SalaryPeriod {
+ calculationMethod String @default("LEGACY_MONTHLY") @map("calculation_method") @db.VarChar(30)
+ paymentStatus String @default("UNPAID") @map("payment_status") @db.VarChar(20)
+ paidAt DateTime? @map("paid_at") @db.Timestamptz(3)
+ paidBy String? @map("paid_by") @db.Uuid
+ paymentReference String? @map("payment_reference") @db.VarChar(150)
+ paymentNote String? @map("payment_note") @db.VarChar(500)
  id String @id @default(uuid()) @db.Uuid
  startDate DateTime @unique @map("start_date") @db.Date
  endDate DateTime @map("end_date") @db.Date
@@ -568,6 +585,9 @@ model SalaryCalculation {
  @@map("salary_calculations")
 }
 model SalaryAdjustment {
+ correctsWeeklyStatementId String? @map("corrects_weekly_statement_id") @db.Uuid
+ earningWeekDate DateTime? @map("earning_week_date") @db.Date
+ includedWeeklyStatementId String? @map("included_weekly_statement_id") @db.Uuid
  id String @id @default(uuid()) @db.Uuid
  employeeId String @map("employee_id") @db.Uuid
  salaryPeriodId String @map("salary_period_id") @db.Uuid
@@ -591,6 +611,7 @@ model SalaryAdjustment {
  @@map("salary_adjustments")
 }
 model Preorder {
+ includedWeeklyStatementId String? @map("included_weekly_statement_id") @db.Uuid
  id String @id @default(uuid()) @db.Uuid
  employeeId String @map("employee_id") @db.Uuid
  employmentPeriodId String @map("employment_period_id") @db.Uuid
@@ -618,4 +639,118 @@ model Preorder {
  @@index([employeeId,orderAt])
  @@index([status,salaryPeriodId])
  @@map("preorders")
+}
+
+
+model CommissionRecheck {
+ id String @id @default(uuid()) @db.Uuid
+ employeeId String @map("employee_id") @db.Uuid
+ preorderId String @map("preorder_id") @db.Uuid
+ reason String @db.VarChar(500)
+ explanation String @default("") @db.VarChar(2000)
+ status String @default("PENDING") @db.VarChar(20)
+ requestedBy String @map("requested_by") @db.Uuid
+ reviewedBy String? @map("reviewed_by") @db.Uuid
+ reviewComment String? @map("review_comment") @db.VarChar(500)
+ resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(3)
+ correctionAdjustmentId String? @map("correction_adjustment_id") @db.Uuid
+ operationKey String @unique @map("operation_key") @db.Uuid
+ revision Int @default(1)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ @@index([employeeId,status,createdAt])
+ @@map("commission_rechecks")
+}
+model EmailChangeRequest {
+ id String @id @default(uuid()) @db.Uuid
+ userId String @map("user_id") @db.Uuid
+ requestedBy String @map("requested_by") @db.Uuid
+ previousEmail String @map("previous_email") @db.VarChar(254)
+ newEmail String @map("new_email") @db.VarChar(254)
+ tokenHash String @unique @map("token_hash") @db.Char(64)
+ expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+ status String @default("PENDING") @db.VarChar(20)
+ deliveryStatus String @default("PENDING") @map("delivery_status") @db.VarChar(20)
+ noticeDeliveredAt DateTime? @map("notice_delivered_at") @db.Timestamptz(3)
+ completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+ sessionVersionSnapshot Int @map("session_version_snapshot")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ @@index([userId,status,createdAt])
+ @@map("email_change_requests")
+}
+model TaskAssignment {
+ id String @id @default(uuid()) @db.Uuid
+ employeeId String @map("employee_id") @db.Uuid
+ title String @db.VarChar(150)
+ description String @db.VarChar(5000)
+ assignedDate DateTime @map("assigned_date") @db.Date
+ dueDate DateTime? @map("due_date") @db.Date
+ priority String @default("NORMAL") @db.VarChar(20)
+ status String @default("ASSIGNED") @db.VarChar(20)
+ createdBy String @map("created_by") @db.Uuid
+ completionNote String? @map("completion_note") @db.VarChar(2000)
+ completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+ completedBy String? @map("completed_by") @db.Uuid
+ operationKey String @map("operation_key") @db.Uuid
+ revision Int @default(1)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+ @@unique([employeeId,operationKey])
+ @@index([employeeId,assignedDate])
+ @@index([dueDate,status])
+ @@map("task_assignments")
+}
+model WeeklyEarningStatement {
+ id String @id @default(uuid()) @db.Uuid
+ employeeId String @map("employee_id") @db.Uuid
+ weekStartDate DateTime @map("week_start_date") @db.Date
+ weekEndDate DateTime @map("week_end_date") @db.Date
+ timezoneSnapshot String @map("timezone_snapshot") @db.VarChar(100)
+ currency String @db.Char(3)
+ status String @default("DRAFT") @db.VarChar(20)
+ calculationSnapshot Json @map("calculation_snapshot")
+ monthComponents Json @map("month_components")
+ sourceFingerprint String @map("source_fingerprint") @db.Char(64)
+ baseAmount Decimal @map("base_amount") @db.Decimal(18,2)
+ overtimeAmount Decimal @map("overtime_amount") @db.Decimal(18,2)
+ commissionAmount Decimal @map("commission_amount") @db.Decimal(18,2)
+ bonusAmount Decimal @map("bonus_amount") @db.Decimal(18,2)
+ deductionAmount Decimal @map("deduction_amount") @db.Decimal(18,2)
+ otherAmount Decimal @map("other_amount") @db.Decimal(18,2)
+ finalAmount Decimal @map("final_amount") @db.Decimal(18,2)
+ calculatedBy String @map("calculated_by") @db.Uuid
+ reviewedBy String? @map("reviewed_by") @db.Uuid
+ finalizedBy String? @map("finalized_by") @db.Uuid
+ finalizedAt DateTime? @map("finalized_at") @db.Timestamptz(3)
+ revision Int @default(1)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+ @@unique([employeeId,weekStartDate])
+ @@unique([id,employeeId])
+ @@index([weekStartDate,status])
+ @@map("weekly_earning_statements")
+}
+model ShiftSwapRequest {
+ id String @id @default(uuid()) @db.Uuid
+ requesterEmployeeId String @map("requester_employee_id") @db.Uuid
+ partnerEmployeeId String @map("partner_employee_id") @db.Uuid
+ requesterSlotId String @map("requester_slot_id") @db.Uuid
+ requesterDate DateTime @map("requester_date") @db.Date
+ partnerSlotId String @map("partner_slot_id") @db.Uuid
+ partnerDate DateTime @map("partner_date") @db.Date
+ sourceSnapshot Json @map("source_snapshot")
+ status String @default("AWAITING_PARTNER") @db.VarChar(30)
+ reason String @db.VarChar(500)
+ partnerComment String? @map("partner_comment") @db.VarChar(500)
+ reviewComment String? @map("review_comment") @db.VarChar(500)
+ requestedBy String @map("requested_by") @db.Uuid
+ acceptedBy String? @map("accepted_by") @db.Uuid
+ acceptedAt DateTime? @map("accepted_at") @db.Timestamptz(3)
+ reviewedBy String? @map("reviewed_by") @db.Uuid
+ reviewedAt DateTime? @map("reviewed_at") @db.Timestamptz(3)
+ operationKey String @unique @map("operation_key") @db.Uuid
+ revision Int @default(1)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ @@index([requesterEmployeeId,status])
+ @@index([partnerEmployeeId,status])
+ @@map("shift_swap_requests")
 }

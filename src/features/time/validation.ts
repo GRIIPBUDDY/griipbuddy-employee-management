@@ -8,6 +8,7 @@ export const publishSchema = z.object({
   label: z.string().trim().max(100).transform(v => v || null), reason: z.string().trim().min(1).max(500),
   baseScheduleId: z.union([uuidSchema, z.literal("")]).default("").transform(v => v || null), baseRevision: z.number().int().positive().optional(),
   holidayWorkRequired: z.boolean().default(false),
+  duration:z.enum(["CUSTOM","WEEK","INDEFINITE"]).default("CUSTOM"),editScope:z.enum(["CUSTOM","OCCURRENCE","FUTURE","SERIES"]).default("CUSTOM"),
   slots: z.array(slotSchema), restoreSlots: z.array(slotSchema).optional(),
 }).strict().refine(v => !v.effectiveUntil || v.effectiveUntil > v.effectiveFrom, "Effective end must follow start and is exclusive.")
  .refine(v => !v.holidayWorkRequired || !!v.effectiveUntil && v.slots.length>0, "Required holiday work needs a bounded temporary pattern.")
@@ -15,5 +16,5 @@ export const publishSchema = z.object({
 export const checkinSchema = z.object({ slotId: uuidSchema, workDate: dateSchema, operationKey: uuidSchema }).strict();
 export const checkoutSchema = z.object({ sessionId: uuidSchema, operationKey: uuidSchema }).strict();
 export const scheduleReadSchema = z.object({ week: dateSchema.optional() }).strict();
-export const historyReadSchema = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1) }).strict();
+export const historyReadSchema = z.object({from:dateSchema.optional(),until:dateSchema.optional(), page: z.coerce.number().int().min(1).max(10000).default(1) }).strict();
 export type SlotInput = z.infer<typeof slotSchema>;

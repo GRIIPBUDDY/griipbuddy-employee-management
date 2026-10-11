@@ -12,6 +12,10 @@ export function validateRuntimeEnvironment(env: Record<string, string | undefine
   if (env.AUTH_URL && url(env.AUTH_URL, "AUTH_URL").href !== origin.href) throw new Error("AUTH_URL must match APP_BASE_URL.");
   const localHttp = origin.protocol === "http:" && env.ALLOW_LOCAL_HTTP === "true" && ["localhost", "127.0.0.1"].includes(origin.hostname);
   if (origin.protocol !== "https:" && !localHttp) throw new Error("APP_BASE_URL must be HTTPS, or explicitly allowed loopback HTTP.");
+  const remembered=Number(env.REMEMBER_ME_DAYS??30);
+  if(!Number.isInteger(remembered)||remembered<1||remembered>90)throw new Error("REMEMBER_ME_DAYS must be an integer from 1 through 90.");
+  if(env.EMAIL_DELIVERY_URL){const delivery=url(env.EMAIL_DELIVERY_URL,"EMAIL_DELIVERY_URL");if(delivery.protocol!=="https:"||delivery.username||delivery.password||!env.EMAIL_DELIVERY_TOKEN)throw new Error("Email delivery requires an HTTPS adapter URL and token.");}
+  if(env.NODE_ENV==="production" && env.ALLOW_DEV_EMAIL_PREVIEW==="true")throw new Error("Development email previews cannot be enabled in production.");
   for (const name of ["MIGRATION_DATABASE_URL", "BOOTSTRAP_ADMIN_EMAIL", "BOOTSTRAP_ADMIN_NAME", "BOOTSTRAP_ADMIN_PASSWORD", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_APP_PASSWORD"]) {
     if (env[name]) throw new Error(`Do not inject ${name} into the application runtime.`);
   }

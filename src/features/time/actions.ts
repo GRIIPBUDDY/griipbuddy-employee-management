@@ -4,7 +4,7 @@ import { getIdentity, assertMutationOrigin } from "@/lib/auth/request";
 import { safeMessage } from "@/lib/utils/errors";
 import type { ActionState } from "@/types/auth";
 import { publishSchedule } from "./schedules";
-import { checkIn, checkOut } from "./attendance";
+import { checkIn, checkOut,checkInUnscheduled } from "./attendance";
 const text = (form: FormData, key: string) => String(form.get(key) ?? "");
 function minute(time: string) { if (!/^\d{2}:\d{2}$/.test(time)) return NaN; const [hour, minute] = time.split(":").map(Number); return hour <= 23 && minute <= 59 ? hour * 60 + minute : NaN; }
 function refresh() { revalidatePath("/me", "layout"); revalidatePath("/manage", "layout"); }
@@ -14,6 +14,7 @@ export async function publishAction(_: ActionState, form: FormData): Promise<Act
     await publishSchedule(await getIdentity(), {
       ...Object.fromEntries(["employeeId", "employmentPeriodId", "effectiveFrom", "effectiveUntil", "label", "reason", "baseScheduleId"].map(k => [k, text(form, k)])),
       ...(form.has("baseRevision") ? { baseRevision: Number(form.get("baseRevision")) } : {}),
+      duration:text(form,"duration")||"CUSTOM",editScope:text(form,"editScope")||"CUSTOM",
       holidayWorkRequired: form.get("holidayWorkRequired") === "on",
       slots: form.getAll("slotKey").map(key => ({ weekday: Number(form.get(`weekday-${key}`)),
         startMinute: minute(text(form, `start-${key}`)), endMinute: minute(text(form, `end-${key}`)), endDayOffset: Number(form.get(`endday-${key}`)) })),
@@ -30,3 +31,5 @@ export async function checkoutAction(_: ActionState, form: FormData): Promise<Ac
   try { await assertMutationOrigin(); await checkOut(await getIdentity(), { sessionId: text(form, "sessionId"), operationKey: text(form, "operationKey") }); refresh(); return { success: "You are checked out. Your actual session is recorded." }; }
   catch (error) { return { error: safeMessage(error) }; }
 }
+
+export async function unscheduledAction(_:ActionState,form:FormData):Promise<ActionState>{try{await assertMutationOrigin();await checkInUnscheduled(await getIdentity(),{operationKey:text(form,"operationKey")});refresh();return {success:"Unscheduled session started. Payable overtime requires staff approval."};}catch(e){return {error:safeMessage(e)};}}

@@ -4,7 +4,6 @@ import { db } from "@/lib/db/client";
 import { audit,type Database } from "@/lib/db/audit";
 import { securityBoundary } from "@/lib/authorization/actor";
 import { authorizedMutation } from "@/lib/db/mutation";
-import { assertRole } from "@/lib/authorization/policy";
 import { validated } from "@/lib/validation/schemas";
 import { AppError } from "@/lib/utils/errors";
 import type { Identity,Actor } from "@/types/auth";
@@ -16,6 +15,7 @@ import { verifyReconciliation } from "./reconciliation";
 import { notify,notifySalaryPeriod } from "@/features/review/notifications";
 import { payStaff,commissionRestricted,canCommissionStaff } from "./access";
 import { capturePeriod,payrollRoster } from "./capture";
+import { calculateWeeklyMonth } from "./weekly";
 import { calculatePay } from "./engine";
 import { decimal } from "./money";
 import { periodSchema,calculationSchema,transitionSchema,listSchema } from "./validation";
@@ -31,7 +31,7 @@ export async function createPeriod(identity:Identity|null,input:unknown) {
  let from:string,until:string;try{const date=Temporal.PlainDate.from(`${v.month}-01`);if(date.year<1900 || date.year>2199)throw new Error();from=date.toString();until=date.add({months:1}).toString();}catch{throw new AppError(400,"MONTH","Choose a valid calendar month from 1900 through 2199.");}
  return authorizedMutation(identity,async(actor,tx)=>{
   payStaff(actor);const existing=await tx.salaryPeriod.findUnique({where:{startDate:dateValue(from)}});if(existing)return existing.id;
-  const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),p=await tx.salaryPeriod.create({data:{startDate:dateValue(from),endDate:dateValue(until),timezoneSnapshot:settings.timezone,currency:settings.currency,createdBy:actor.userId}});
+  const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),p=await tx.salaryPeriod.create({data:{startDate:dateValue(from),endDate:dateValue(until),timezoneSnapshot:settings.timezone,currency:settings.currency,calculationMethod:dateValue(from)>=settings.earningsEffectiveFrom?"WEEKLY_ATTENDANCE":"LEGACY_MONTHLY",createdBy:actor.userId}});
   await audit({actorUserId:actor.userId,action:"SALARY_PERIOD_CREATED",entity:"salary_periods",entityId:p.id,after:{from,until,currency:p.currency}},tx);return p.id;
  });
 }
@@ -44,7 +44,7 @@ export async function calculatePeriod(identity:Identity|null,input:unknown) {
   if(v.revision!==p.inputRevision)throw new AppError(409,"STALE","Salary inputs changed. Refresh before calculating.");
   const facts=await capturePeriod(tx,p,await databaseNow(tx));if(facts.unassigned && !canCommissionStaff(actor))payStaff(actor,true);return {p,...facts};
  });
- const outputs=captured.inputs.map(i=>({employeeId:i.employeeId,...calculatePay(i)}));
+ const outputs=captured.inputs.map(i=>({employeeId:i.employeeId,...(captured.p.calculationMethod==="WEEKLY_ATTENDANCE"?calculateWeeklyMonth(i):calculatePay(i))}));
  return authorizedMutation(identity,async(actor,tx)=>{
   payStaff(actor);const p=await openPeriod(tx,v.periodId);await restrictedPeriod(tx,actor,p);
   if(p.inputRevision!==captured.p.inputRevision || JSON.stringify(await payrollRoster(tx,p))!==JSON.stringify(captured.ids))throw new AppError(409,"STALE","Salary sources changed during calculation. Calculate again.");
@@ -63,7 +63,7 @@ export async function calculatePeriod(identity:Identity|null,input:unknown) {
 export async function transitionPeriod(identity:Identity|null,input:unknown) {
  await securityBoundary(identity,async actor=>payStaff(actor));const v=validated(transitionSchema,input);
  return authorizedMutation(identity,async(actor,tx)=>{
-  payStaff(actor);if(v.status!=="REVIEWED")assertRole(actor,["ADMIN"]);
+  payStaff(actor);
   const p=await tx.salaryPeriod.findUnique({where:{id:v.periodId}});if(!p)throw new AppError(404,"NOT_FOUND","Salary period not found.");
   if(p.status===v.status && p.inputRevision===v.revision)return p.id;
   await restrictedPeriod(tx,actor,p);
@@ -72,6 +72,7 @@ export async function transitionPeriod(identity:Identity|null,input:unknown) {
   const now=await databaseNow(tx),settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),lastWeek=localWeek(addDays(dateKey(p.endDate),-1),settings.weekStartDay);
   if(now<dayStart(addDays(lastWeek,7),p.timezoneSnapshot))throw new AppError(409,"BOUNDARY_WEEK_OPEN","Every week intersecting this month must finish before closeout.");
   const facts=await capturePeriod(tx,p,now),rows=await tx.salaryCalculation.findMany({where:{salaryPeriodId:p.id},orderBy:{employeeId:"asc"}});
+  if(actor.role==="HR_MANAGER" && rows.some(r=>r.employeeId===actor.employeeId))throw new AppError(403,"SELF_REVIEW","Another authorized staff member must review your own monthly pay.");
   if(rows.length!==facts.ids.length || rows.some((r,i)=>r.employeeId!==facts.ids[i] || r.inputRevision!==p.inputRevision))throw new AppError(409,"ROSTER_INCOMPLETE","Recalculate every employee on the current monthly roster.");
   const blockers=[...facts.inputs.flatMap(i=>i.blockers),...(facts.unassigned?["Assign or explicitly defer unresolved pre-orders"]:[])];
   if(blockers.length)throw new AppError(409,"UNRESOLVED_PAY",`Resolve sources before closeout: ${[...new Set(blockers)].join("; ")}`);
@@ -95,24 +96,25 @@ export async function transitionPeriod(identity:Identity|null,input:unknown) {
   await audit({actorUserId:actor.userId,action:`SALARY_PERIOD_${v.status}`,entity:"salary_periods",entityId:p.id,before:{status:p.status},after:{status:v.status,inputRevision:p.inputRevision}},tx);return p.id;
  });
 }
-function statement(row:SalaryCalculation,p:SalaryPeriod,full:boolean,own:boolean) {
- const period={id:p.id,from:dateKey(p.startDate),until:dateKey(p.endDate),currency:p.currency,status:p.status};
+function statement(row:SalaryCalculation,p:SalaryPeriod,full:boolean,own:boolean,showCommission=true) {
+ const period={id:p.id,from:dateKey(p.startDate),until:dateKey(p.endDate),currency:p.currency,status:p.status,paymentStatus:p.paymentStatus,paidAt:p.paidAt};
  if(!full)return {id:row.id,period,finalAmount:row.finalAmount.toFixed(2)};
  const snapshot=structuredClone(row.calculationSnapshot) as unknown as ReturnType<typeof calculatePay>["calculationSnapshot"];
- if(own)snapshot.adjustments=snapshot.adjustments.map(a=>({...a,reason:"Approved adjustment"}));
- return {id:row.id,period,finalAmount:row.finalAmount.toFixed(2),baseAmount:row.baseAmount.toFixed(2),overtimeAmount:row.overtimeAmount.toFixed(2),commissionAmount:row.commissionAmount.toFixed(2),bonusAmount:row.bonusAmount.toFixed(2),deductionAmount:row.deductionAmount.toFixed(2),otherAmount:row.otherAmount.toFixed(2),snapshot};
+ if(own && !showCommission){const hide=(value:unknown):void=>{if(!value || typeof value!=="object")return;for(const [key,child] of Object.entries(value)){if(/commission/i.test(key))Reflect.deleteProperty(value,key);else hide(child);}};hide(snapshot);}
+ if(own)snapshot.adjustments=snapshot.adjustments.map(a=>{const safe={...a,reason:"Approved adjustment"};if(!showCommission)Reflect.deleteProperty(safe,"commissionRelated");return safe;});
+ return {id:row.id,period,finalAmount:row.finalAmount.toFixed(2),baseAmount:row.baseAmount.toFixed(2),overtimeAmount:row.overtimeAmount.toFixed(2),...(showCommission?{commissionAmount:row.commissionAmount.toFixed(2)}:{}),bonusAmount:row.bonusAmount.toFixed(2),deductionAmount:row.deductionAmount.toFixed(2),otherAmount:row.otherAmount.toFixed(2),snapshot};
 }
 export async function salaryData(identity:Identity|null,query:unknown={},own=false) {
  return securityBoundary(identity,async actor=>{
   if(!own)payStaff(actor);const v=validated(listSchema,query);
   const rows=await db.salaryCalculation.findMany({where:{...(own?{employeeId:actor.employeeId??"00000000-0000-0000-0000-000000000000",finalizedAt:{not:null}}:{}),...(v.id?{id:v.id}:{})},orderBy:[{calculatedAt:"desc"},{id:"desc"}],skip:(v.page-1)*25,take:26});
   if(v.id && !rows.length)throw new AppError(404,"NOT_FOUND","Salary statement not found.");
-  return {records:await Promise.all(rows.slice(0,25).map(async row=>{const p=await db.salaryPeriod.findUniqueOrThrow({where:{id:row.salaryPeriodId}});return {...statement(row,p,!commissionRestricted(row.calculationSnapshot) || (own?actor.preorderCommissionEnabled:canCommissionStaff(actor)),own),...(!own?{employee:await db.employee.findUniqueOrThrow({where:{id:row.employeeId},select:{legalName:true}})}:{})};})),page:v.page,hasNext:rows.length>25};
+  return {records:await Promise.all(rows.slice(0,25).map(async row=>{const p=await db.salaryPeriod.findUniqueOrThrow({where:{id:row.salaryPeriodId}});return {...statement(row,p,!commissionRestricted(row.calculationSnapshot) || (own?actor.preorderCommissionEnabled:canCommissionStaff(actor)),own,own?actor.preorderCommissionEnabled:canCommissionStaff(actor)),...(!own?{employee:await db.employee.findUniqueOrThrow({where:{id:row.employeeId},select:{legalName:true}})}:{})};})),page:v.page,hasNext:rows.length>25};
  });
 }
 export async function periodData(identity:Identity|null,query:unknown={}) {
  return securityBoundary(identity,async actor=>{
-  payStaff(actor);const v=validated(listSchema,query),rows=await db.salaryPeriod.findMany({where:{...(v.id?{id:v.id}:{}),...(v.status?{status:v.status}:{})},orderBy:{startDate:"desc"},skip:(v.page-1)*25,take:26,select:{id:true,startDate:true,endDate:true,currency:true,status:true,inputRevision:true,calculatedInputRevision:true,createdAt:true,reviewedAt:true,approvedAt:true,finalizedAt:true}});
+  payStaff(actor);const v=validated(listSchema,query),rows=await db.salaryPeriod.findMany({where:{...(v.id?{id:v.id}:{}),...(v.status?{status:v.status}:{})},orderBy:{startDate:"desc"},skip:(v.page-1)*25,take:26,select:{id:true,startDate:true,endDate:true,currency:true,status:true,inputRevision:true,calculatedInputRevision:true,createdAt:true,reviewedAt:true,approvedAt:true,finalizedAt:true,paymentStatus:true,paidAt:true}});
   if(v.id && !rows.length)throw new AppError(404,"NOT_FOUND","Salary period not found.");
   return {records:rows.slice(0,25),page:v.page,hasNext:rows.length>25,isAdmin:actor.role==="ADMIN",calculations:v.id?await Promise.all((await db.salaryCalculation.findMany({where:{salaryPeriodId:v.id},orderBy:{employeeId:"asc"}})).map(async row=>({...statement(row,await db.salaryPeriod.findUniqueOrThrow({where:{id:v.id!}}),!commissionRestricted(row.calculationSnapshot)||canCommissionStaff(actor),false),employee:await db.employee.findUniqueOrThrow({where:{id:row.employeeId},select:{legalName:true}})}))):[]};
  });

@@ -56,8 +56,9 @@ export async function updateAccountSecurity(identity: Identity | null, input: un
     if (value.role === "EMPLOYEE" && !target.employee) throw new AppError(400, "EMPLOYEE_REQUIRED", "Link an employee profile before assigning the employee role.");
     if (value.canManageCommissions && value.role !== "HR_MANAGER") throw new AppError(400, "INVALID_GRANT", "Only HR managers use the management commission grant.");
     if (value.preorderCommissionEnabled && !target.employee) throw new AppError(400, "EMPLOYEE_REQUIRED", "This account has no employee profile.");
+    if(target.id===actor.userId && !value.isActive)throw new AppError(403,"SELF_STATUS","You cannot suspend your own account.");
     if (target.role === "ADMIN" && target.isActive && (value.role !== "ADMIN" || !value.isActive)) {
-      const admins = await tx.user.count({ where: { role: "ADMIN", isActive: true } });
+      const admins = await tx.user.count({ where: { role: "ADMIN", isActive: true, accountStatus: "ACTIVE" } });
       if (admins <= 1) throw new AppError(409, "LAST_ADMIN", "Keep at least one active administrator.");
     }
     await tx.user.update({ where: { id: target.id }, data: { role: value.role, isActive: value.isActive, canManageCommissions: value.canManageCommissions, sessionVersion: { increment: 1 } } });

@@ -25,7 +25,7 @@ export async function captureEmployee(tx:Database,p:SalaryPeriod,employeeId:stri
   tx.leaveRequest.count({where:{employeeId,status:"PENDING",startAt:{lt:dayStart(until,zone)},endAt:{gt:dayStart(from,zone)}}})
  ]);
  const blockers=[...totals.issues,...(totals.openCount?["Missing checkout"]:[]),...(totals.pendingCorrections?["Pending attendance correction"]:[]),...(totals.leaveConflictSeconds?["Work overlaps approved leave"]:[]),...(totals.outsideEmploymentSeconds?["Work outside employment"]:[]),...(pendingLeave?["Pending leave request"]:[]),...(adjustments.some(a=>a.status==="PENDING")?["Pending salary adjustment"]:[]),...(commissions.some(c=>c.status==="PENDING")?["Pending assigned commission"]:[])];
- const rateFacts:RateFact[]=rates.map(r=>({id:r.id,employmentPeriodId:r.employmentPeriodId,effectiveFrom:dateKey(r.effectiveFrom),effectiveUntil:r.effectiveUntil?dateKey(r.effectiveUntil):null,payType:r.payType,baseAmount:r.baseAmount.toString(),overtimeHourlyEquivalent:r.overtimeHourlyEquivalent?.toString()??null,overtimeMultiplier:r.overtimeMultiplier.toString(),currency:r.currency,revision:r.revision}));
+ const rateFacts:RateFact[]=rates.map(r=>({id:r.id,employmentPeriodId:r.employmentPeriodId,effectiveFrom:dateKey(r.effectiveFrom),effectiveUntil:r.effectiveUntil?dateKey(r.effectiveUntil):null,payType:r.payType,baseAmount:r.baseAmount.toString(),overtimeHourlyRate:r.overtimeHourlyRate?.toString()??null,overtimeHourlyEquivalent:r.overtimeHourlyEquivalent?.toString()??null,overtimeMultiplier:r.overtimeMultiplier.toString(),currency:r.currency,revision:r.revision}));
  const approved:Interval[]=[],weeks=[];
  for(let week=localWeek(from,settings.weekStartDay);week<until;week=addDays(week,7)) {
   const current=await weekCalculation(tx,employeeId,week,now),row=await tx.overtimeReview.findUnique({where:{employeeId_weekStartDate:{employeeId,weekStartDate:dateValue(week)}}});
@@ -43,18 +43,20 @@ export async function captureEmployee(tx:Database,p:SalaryPeriod,employeeId:stri
   if(!rate)blockers.push(`Compensation coverage missing or overlapping on ${date}`);
   const day=windowFor(date,1,zone),actual=intersect(totals.actual,[day]),scheduled=intersect(totals.scheduled,[day]),paidAbsence=intersect(totals.paidAbsence,[day]),approvedOvertime=intersect(approved,[day]);
   if(rate && rate.currency!==p.currency)blockers.push(`Currency mismatch on ${date}`);
-  if(rate && rate.payType!=="HOURLY" && seconds(approvedOvertime)>0 && rate.overtimeHourlyEquivalent===null)blockers.push(`Agreed overtime hourly equivalent missing on ${date}`);
-  if(rate?.payType==="DAILY" && !seconds(scheduled) && seconds(actual) && !adjustments.some(a=>a.status==="APPROVED" && a.type==="OTHER"))blockers.push(`Daily unscheduled work on ${date} needs a reviewed manual adjustment`);
+  if(p.calculationMethod==="WEEKLY_ATTENDANCE" && rate && seconds(approvedOvertime)>0 && rate.overtimeHourlyRate==null)blockers.push(`Overtime hourly rate missing on ${date}`);
+  if(p.calculationMethod!=="WEEKLY_ATTENDANCE" && rate && rate.payType!=="HOURLY" && seconds(approvedOvertime)>0 && rate.overtimeHourlyEquivalent===null)blockers.push(`Agreed overtime hourly equivalent missing on ${date}`);
+  if(p.calculationMethod!=="WEEKLY_ATTENDANCE" && rate?.payType==="DAILY" && !seconds(scheduled) && seconds(actual) && !adjustments.some(a=>a.status==="APPROVED" && a.type==="OTHER"))blockers.push(`Daily unscheduled work on ${date} needs a reviewed manual adjustment`);
   days.push({date,employmentPeriodId:stint.id,rate,actual,scheduled,paidAbsence,approvedOvertime});
  }
- return {employeeId,period:{id:p.id,from,until,timezone:zone,currency:p.currency,inputRevision:p.inputRevision},days,
+ if(p.calculationMethod==="WEEKLY_ATTENDANCE")for(const rate of rateFacts){if(days.some(d=>d.rate?.id===rate.id) && !days.filter(d=>d.rate?.id===rate.id).some(d=>seconds(d.scheduled)>0))blockers.push(`Zero planned payable hours for rate ${rate.id}`);}
+ return {employeeId,period:{id:p.id,from,until,timezone:zone,currency:p.currency,inputRevision:p.inputRevision,method:p.calculationMethod},days,
   sources:{...totals.sourceFacts,compensation:rateFacts,employment:stints.map(s=>({id:s.id,startDate:dateKey(s.startDate),endDate:s.endDate?dateKey(s.endDate):null,revision:s.revision})),overtime:weeks},
   commissions:commissions.filter(c=>c.status!=="PENDING").map(c=>({id:c.id,reference:c.reference,amount:c.commissionAmount.toFixed(2),revision:c.revision,orderAt:c.orderAt.toISOString()})),
   adjustments:adjustments.filter(a=>a.status==="APPROVED").map(a=>({id:a.id,type:a.type,amount:a.amount.toFixed(2),reason:a.reason,revision:a.revision,commissionRelated:a.commissionRelated})),blockers:[...new Set(blockers)]};
 }
 export async function capturePeriod(tx:Database,p:SalaryPeriod,now:Date) {
  const ids=await payrollRoster(tx,p),inputs=[];
- for(const id of ids)inputs.push(await captureEmployee(tx,p,id,now));
+ for(const id of ids)inputs.push(p.calculationMethod==="WEEKLY_ATTENDANCE"?await (await import("./weekly")).captureWeeklyMonth(tx,p,id,now):await captureEmployee(tx,p,id,now));
  const unassigned=await tx.preorder.count({where:{includedSalaryCalculationId:null,status:{in:["PENDING","APPROVED"]},salaryPeriodId:null,orderAt:{lt:dayStart(dateKey(p.endDate),p.timezoneSnapshot)}}});
  if(unassigned)for(const input of inputs)input.blockers.push("Unassigned pre-orders require authorized assignment or explicit deferral");
  return {ids,inputs,unassigned};

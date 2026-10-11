@@ -9,6 +9,7 @@ import { AppError } from "@/lib/utils/errors";
 import type { Identity } from "@/types/auth";
 import { databaseNow,databaseOrderNow } from "@/features/time/clock";
 import { localDate,dateValue,dayStart,dateKey } from "@/features/time/dates";
+import { localWeek } from "@/features/review/calculation";
 import { notify } from "@/features/review/notifications";
 import { ownPreorderSchema,staffPreorderSchema,decisionSchema,assignSchema,commissionPolicySchema,listSchema } from "./validation";
 import { adjustmentReviewer } from "./access";
@@ -21,18 +22,20 @@ export async function eligibilityEvidence(tx:Database,employeeId:string,at:Date,
 }
 export async function submitPreorder(identity:Identity|null,input:unknown,staff=false) {
  await securityBoundary(identity,async a=>{if(staff)assertManageCommissions(a);else assertOwnCommission(a);});
+ if(!staff)throw new AppError(403,"READ_ONLY","Recorded amounts are managed by authorized staff. Submit a recheck instead.");
  const staffValue=staff?validated(staffPreorderSchema,input):undefined,v=staffValue??validated(ownPreorderSchema,input);
  try{return await authorizedMutation(identity,async(actor,tx)=>{
   if(staff)assertManageCommissions(actor);else assertOwnCommission(actor);
   const employeeId=staffValue?.employeeId??actor.employeeId!,settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}});
   await tx.$queryRaw`SELECT id FROM employees WHERE id=${employeeId}::uuid FOR UPDATE`;
+  if(!await tx.employee.findFirst({where:{id:employeeId,preorderCommissionEnabled:true},select:{id:true}}))throw new AppError(404,"NOT_FOUND","Eligible record not found.");
   const now=staff?await databaseNow(tx):await databaseOrderNow(tx),at=staffValue?new Date(staffValue.orderAt):now;if(at>now || staff && at.getMilliseconds())throw new AppError(400,"ORDER_TIME","Historical order time must be a past or current whole-second instant.");
   const date=localDate(at,settings.timezone),stint=await tx.employmentPeriod.findFirst({where:{employeeId,startDate:{lte:dateValue(date)},OR:[{endDate:null},{endDate:{gt:dateValue(date)}}]}});if(!stint)throw new AppError(404,"NOT_FOUND","Employment coverage not found.");
   const evidence=await eligibilityEvidence(tx,employeeId,at,staffValue?.eligibilityEvidenceId);
   const type=staffValue?.commissionType??settings.commissionRuleType,value=staffValue?.commissionValue??settings.commissionRuleValue.toString(),orderValue=v.orderValue||null;
   if(type==="PERCENT" && (orderValue===null || Number(value)>100))throw new AppError(400,"COMMISSION_RULE","Percentage commission requires an order value and a rate from zero through 100.");
   const old=staffValue?.id?await tx.preorder.findFirst({where:{id:staffValue!.id,employeeId}}):null;if(staffValue?.id && !old)throw new AppError(404,"NOT_FOUND","Pre-order not found.");
-  if(old && (old.includedSalaryCalculationId || old.revision!==staffValue?.revision))throw new AppError(409,"STALE","Included pre-orders are immutable; refresh other proposals before editing.");
+  if(old && (old.includedSalaryCalculationId || old.includedWeeklyStatementId || old.revision!==staffValue?.revision))throw new AppError(409,"STALE","Included pre-orders are immutable; refresh other proposals before editing.");
   const data={reference:v.reference,orderAt:at,orderValue,currency:settings.currency,commissionType:type,commissionValue:value,policyVersion:settings.rulesVersion,commissionAmount:commission(type,value,orderValue),eligibilityEvidenceId:evidence,reason:v.reason,status:"PENDING",approvedBy:null,approvedAt:null,reviewComment:null};
   if(old && old.employmentPeriodId!==stint.id)throw new AppError(400,"EMPLOYMENT_COVERAGE","A pre-order cannot move to another employment stint.");
   const row=old?await tx.preorder.update({where:{id:old.id},data:{...data,revision:{increment:1}}}):await tx.preorder.create({data:{...data,employeeId,employmentPeriodId:stint.id,createdBy:actor.userId}});
@@ -64,17 +67,22 @@ export async function assignPreorder(identity:Identity|null,input:unknown) {
   await audit({actorUserId:actor.userId,employeeId:row.employeeId,action:"COMMISSION_ASSIGNED",entity:"preorders",entityId:row.id,reason:v.reason,before:{periodId:row.salaryPeriodId},after:{periodId:p.id,revision:row.revision+1}},tx);
  });
 }
-export async function withdrawPreorder(identity:Identity|null,idInput:unknown) {
- await securityBoundary(identity,async a=>assertOwnCommission(a));const id=validated(uuidSchema,idInput);
- return authorizedMutation(identity,async(actor,tx)=>{assertOwnCommission(actor);const row=await tx.preorder.findFirst({where:{id,employeeId:actor.employeeId!}});if(!row)throw new AppError(404,"NOT_FOUND","Pre-order not found.");if(row.status!=="PENDING")throw new AppError(409,"DECIDED","Only pending claims can be withdrawn.");await tx.preorder.update({where:{id},data:{status:"CANCELLED",revision:{increment:1}}});await audit({actorUserId:actor.userId,employeeId:row.employeeId,action:"PREORDER_WITHDRAWN",entity:"preorders",entityId:id},tx);});
+export async function withdrawPreorder(identity:Identity|null,idInput:unknown,staff=false) {
+ await securityBoundary(identity,async a=>{if(staff)assertManageCommissions(a);else assertOwnCommission(a);});
+ if(!staff)throw new AppError(403,"READ_ONLY","Recorded amounts are managed by authorized staff. Submit a recheck instead.");
+ const id=validated(uuidSchema,idInput);return authorizedMutation(identity,async(a,tx)=>{
+  assertManageCommissions(a);const row=await tx.preorder.findUnique({where:{id}});if(!row)throw new AppError(404,"NOT_FOUND","Record not found.");adjustmentReviewer(a,row.employeeId,true);
+  if(row.status==="CANCELLED")return;if(row.includedWeeklyStatementId || row.includedSalaryCalculationId || !["PENDING","APPROVED"].includes(row.status))throw new AppError(409,"IMMUTABLE","Use a controlled correction for an included claim.");
+  await tx.preorder.update({where:{id},data:{status:"CANCELLED",revision:{increment:1}}});await audit({actorUserId:a.userId,employeeId:row.employeeId,action:"COMMISSION_CANCELLED",entity:"preorders",entityId:id,before:{status:row.status},after:{status:"CANCELLED",commissionRelated:true}},tx);
+ });
 }
 export async function commissionData(identity:Identity|null,query:unknown={},staff=false) {
  return securityBoundary(identity,async actor=>{
   if(staff)assertManageCommissions(actor);else assertOwnCommission(actor);const v=validated(listSchema,query);
-  const rows=await db.preorder.findMany({where:{...(staff?{}:{employeeId:actor.employeeId!}),...(v.id?{id:v.id}:{}),...(v.status?{status:v.status}:{})},orderBy:[{createdAt:"desc"},{id:"desc"}],skip:(v.page-1)*25,take:26,select:{id:true,employeeId:true,reference:true,orderAt:true,orderValue:true,currency:true,commissionType:true,commissionValue:true,commissionAmount:true,status:true,salaryPeriodId:true,reviewComment:true,approvedAt:true,includedAt:true,revision:true,reason:true,...(staff?{eligibilityEvidenceId:true}:{})}});
+  const rows=await db.preorder.findMany({where:{...(staff?{}:{employeeId:actor.employeeId!}),...(v.id?{id:v.id}:{}),...(v.status?{status:v.status}:{})},orderBy:[{createdAt:"desc"},{id:"desc"}],skip:(v.page-1)*25,take:26,select:{id:true,employeeId:true,reference:true,orderAt:true,orderValue:true,currency:true,commissionType:true,commissionValue:true,commissionAmount:true,status:true,salaryPeriodId:true,reviewComment:true,approvedAt:true,approvedBy:true,createdBy:true,createdAt:true,includedWeeklyStatementId:true,includedAt:true,revision:true,reason:true,...(staff?{eligibilityEvidenceId:true}:{})}});
   if(v.id && !rows.length)throw new AppError(404,"NOT_FOUND","Pre-order not found.");
-  const settings=await db.organizationSettings.findUniqueOrThrow({where:{id:1},select:{commissionRuleType:true,commissionRuleValue:true,timezone:true,currency:true}});
-  return {records:await Promise.all(rows.slice(0,25).map(async r=>({...r,...(!staff?{reason:undefined,reviewComment:undefined}:{}),orderValue:r.orderValue?.toString()??null,commissionValue:r.commissionValue.toString(),commissionAmount:r.commissionAmount.toFixed(2),employee:staff?await db.employee.findUniqueOrThrow({where:{id:r.employeeId},select:{legalName:true}}):null}))),page:v.page,hasNext:rows.length>25,rule:{type:settings.commissionRuleType,value:settings.commissionRuleValue.toString(),currency:settings.currency},timezone:settings.timezone,isAdmin:actor.role==="ADMIN",
+  const settings=await db.organizationSettings.findUniqueOrThrow({where:{id:1},select:{commissionRuleType:true,commissionRuleValue:true,timezone:true,currency:true,weekStartDay:true}});
+  return {records:await Promise.all(rows.slice(0,25).map(async r=>({...r,earningWeek:localWeek(localDate(r.orderAt,settings.timezone),settings.weekStartDay),...(!staff?{reason:undefined,reviewComment:undefined}:{}),orderValue:r.orderValue?.toString()??null,commissionValue:r.commissionValue.toString(),commissionAmount:r.commissionAmount.toFixed(2),employee:staff?await db.employee.findUniqueOrThrow({where:{id:r.employeeId},select:{legalName:true}}):null}))),page:v.page,hasNext:rows.length>25,rule:{type:settings.commissionRuleType,value:settings.commissionRuleValue.toString(),currency:settings.currency},timezone:settings.timezone,isAdmin:actor.role==="ADMIN",
    periods:staff?await db.salaryPeriod.findMany({where:{status:{not:"FINALIZED"}},orderBy:{startDate:"desc"},take:100,select:{id:true,startDate:true,endDate:true}}):[]};
  });
 }
@@ -85,7 +93,8 @@ export async function updateCommissionPolicy(identity:Identity|null,input:unknow
 export async function commissionOptions(identity:Identity|null) {
  return securityBoundary(identity,async actor=>{
   assertManageCommissions(actor);
-  const grants=await db.auditLog.findMany({where:{action:"ACCOUNT_SECURITY_CHANGED",after:{path:["preorderCommissionEnabled"],equals:true}},orderBy:{eventTime:"desc"},take:200,select:{id:true,employeeId:true,eventTime:true}});
+  const eligible=await db.employee.findMany({where:{preorderCommissionEnabled:true},select:{id:true}});
+  const grants=await db.auditLog.findMany({where:{employeeId:{in:eligible.map(e=>e.id)},action:"ACCOUNT_SECURITY_CHANGED",after:{path:["preorderCommissionEnabled"],equals:true}},orderBy:{eventTime:"desc"},take:200,select:{id:true,employeeId:true,eventTime:true}});
   return {isAdmin:actor.role==="ADMIN",grants:await Promise.all(grants.filter(g=>g.employeeId).map(async g=>({...g,employee:await db.employee.findUniqueOrThrow({where:{id:g.employeeId!},select:{legalName:true}})})))};
  });
 }

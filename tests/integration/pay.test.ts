@@ -13,7 +13,7 @@ import type * as Overtime from "@/features/review/overtime";
 let database:Awaited<ReturnType<typeof testPostgres>>,db:PrismaClient,r:typeof Rates,p:typeof Periods,c:typeof Commissions,a:typeof Adjustments,re:typeof Reconciliation,co:typeof Corrections,o:typeof Overtime;
 let admin:Identity,hr:Identity,plainHr:Identity,alice:Identity,bob:Identity,aliceId:string,bobId:string,dayId:string,aliceStint:string,bobStint:string,dayStint:string,periodId:string,febId:string,marId:string,orderId:string,adjId:string,bobSession:string,reviewId:string,originalId:string,bobOriginal:string,reconId:string,reconKey:string;
 let now=new Date("2029-12-01T12:00:00Z");
-const identity=(userId:string,sessionVersion=1):Identity=>({userId,sessionVersion,issuedAt:Date.now(),absoluteExpiresAt:Date.now()+43200000});
+const identity=(userId:string,sessionVersion=1):Identity=>{const now=Date.now();return {userId,sessionVersion,issuedAt:now,absoluteExpiresAt:now+43200000};};
 const rate=(employeeId:string,employmentPeriodId:string,payType="MONTHLY",baseAmount="3100")=>({employeeId,employmentPeriodId,payType,baseAmount,effectiveFrom:"2020-01-01",effectiveUntil:"",overtimeHourlyEquivalent:payType==="HOURLY"?"":"100",overtimeMultiplier:"1.5",reason:"Agreed terms"});
 const current=()=>db.salaryPeriod.findUniqueOrThrow({where:{id:periodId}});
 const calculate=async(id=periodId)=>p.calculatePeriod(admin,{periodId:id,revision:(await db.salaryPeriod.findUniqueOrThrow({where:{id}})).inputRevision});
@@ -21,12 +21,17 @@ const advance=async(status:"REVIEWED"|"APPROVED"|"FINALIZED",id=periodId)=>p.tra
 const claim=(reference:string)=>({reference,reason:"Verified order evidence",orderValue:"123.45"});
 const added=(date:string,start:string,end:string)=>({type:"ADD",workDate:date,checkinAt:`${date}T${start}Z`,checkoutAt:`${date}T${end}Z`,reason:"Recorded actual work",operationKey:randomUUID()});
 const approve=async(id:string)=>co.decideCorrection(hr,{id,decision:"APPROVED",comment:"Verified evidence"});
+// Retained pre-cutover payroll is still tested; commission proposals now come from staff.
+const recordClaim=async(input:{reference:string;reason:string;orderValue?:string})=>{
+ const settings=await db.organizationSettings.findUniqueOrThrow({where:{id:1}}),grant=await db.auditLog.findFirstOrThrow({where:{employeeId:aliceId,action:"ACCOUNT_SECURITY_CHANGED",after:{path:["preorderCommissionEnabled"],equals:true}},orderBy:{eventTime:"desc"}});
+ return c.submitPreorder(hr,{...input,employeeId:aliceId,orderAt:now.toISOString(),eligibilityEvidenceId:grant.id,commissionType:settings.commissionRuleType,commissionValue:settings.commissionRuleValue.toString()},true);
+};
 beforeAll(async()=>{
  database=await testPostgres();process.env.DATABASE_URL=database.runtimeUrl;db=(await import("@/lib/db/client")).db;
  const clock=await import("@/features/time/clock");vi.spyOn(clock,"databaseNow").mockImplementation(async()=>new Date(now));vi.spyOn(clock,"databaseOrderNow").mockImplementation(async()=>new Date(now));
  r=await import("@/features/pay/rates");p=await import("@/features/pay/periods");c=await import("@/features/pay/commissions");a=await import("@/features/pay/adjustments");re=await import("@/features/pay/reconciliation");co=await import("@/features/review/corrections");o=await import("@/features/review/overtime");
  const u=await db.user.create({data:{email:"pay-admin@example.test",role:"ADMIN",mustChangePassword:false,passwordHash:"synthetic"}});admin=identity(u.id);
- await db.organizationSettings.create({data:{companyName:"Pay tests",changedBy:u.id,overtimePolicyVersions:[{effectiveFrom:"2020-01-06",thresholdSeconds:18000,ruleVersion:1}]}});
+ await db.organizationSettings.create({data:{companyName:"Pay tests",changedBy:u.id,earningsEffectiveFrom:new Date("2031-01-01"),overtimePolicyVersions:[{effectiveFrom:"2020-01-06",thresholdSeconds:18000,ruleVersion:1}]}});
  hr=identity((await db.user.create({data:{email:"pay-hr@example.test",role:"HR_MANAGER",mustChangePassword:false,passwordHash:"synthetic",canManageCommissions:true}})).id);
  plainHr=identity((await db.user.create({data:{email:"pay-plainhr@example.test",role:"HR_MANAGER",mustChangePassword:false,passwordHash:"synthetic"}})).id);
  for(const name of ["Alice","Bob","Daily"]){const user=await db.user.create({data:{email:`${name.toLowerCase()}-pay@example.test`,role:"EMPLOYEE",mustChangePassword:false,passwordHash:"synthetic"}}),e=await db.employee.create({data:{userId:user.id,employeeNumber:name,legalName:`${name} Pay`,createdBy:u.id,employmentPeriods:{create:{startDate:new Date("2020-01-01"),departmentLabel:"Operations",positionLabel:"Associate",createdBy:u.id}}},include:{employmentPeriods:true}});
@@ -61,18 +66,18 @@ it("resets unfinished review and revisions when effective compensation changes",
  await expect(p.transitionPeriod(admin,{periodId,revision:before,status:"REVIEWED"})).rejects.toMatchObject({code:"STALE"});
 });
 it("gates every own/staff commission path and rejects authoritative employee-supplied fields",async()=>{
- await expect(c.commissionData(bob)).rejects.toMatchObject({status:403});await expect(c.submitPreorder(bob,claim("denied"))).rejects.toMatchObject({status:403});await expect(c.commissionData(plainHr,{},true)).rejects.toMatchObject({status:403});
- for(const extra of [{employeeId:bobId},{commissionAmount:"999"},{orderAt:"2020-01-01T00:00:00Z"}])await expect(c.submitPreorder(alice,{...claim("tamper"),...extra})).rejects.toMatchObject({status:400});
+ await expect(c.commissionData(bob)).rejects.toMatchObject({status:404});await expect(c.submitPreorder(bob,claim("denied"))).rejects.toMatchObject({status:404});await expect(c.commissionData(plainHr,{},true)).rejects.toMatchObject({status:403});
+ for(const extra of [{employeeId:bobId},{commissionAmount:"999"},{orderAt:"2020-01-01T00:00:00Z"}])await expect(c.submitPreorder(alice,{...claim("tamper"),...extra})).rejects.toMatchObject({status:403,code:"READ_ONLY"});
  await expect(c.decidePreorder(alice,{id:randomUUID(),revision:1,decision:"APPROVED",comment:"self"})).rejects.toMatchObject({status:403});
 });
 it("computes fixed commission on the server and preserves company-wide cancelled reference uniqueness",async()=>{
- await c.updateCommissionPolicy(admin,{type:"FIXED",value:"12.345",reason:"Agreed fixed commission"});now=new Date("2030-01-20T12:00:00Z");orderId=await c.submitPreorder(alice,claim("  order-1  "));
+ await c.updateCommissionPolicy(admin,{type:"FIXED",value:"12.345",reason:"Agreed fixed commission"});now=new Date("2030-01-20T12:00:00Z");orderId=await recordClaim(claim("  order-1  "));
  const row=await db.preorder.findUniqueOrThrow({where:{id:orderId}});expect(row.reference).toBe("ORDER-1");expect(row.commissionAmount.toFixed(2)).toBe("12.35");expect(row.status).toBe("PENDING");
- await expect(c.submitPreorder(alice,claim("order-1"))).rejects.toMatchObject({code:"DUPLICATE_REFERENCE"});const cancelled=await c.submitPreorder(alice,claim("Cancelled-ref"));await c.withdrawPreorder(alice,cancelled);await expect(c.submitPreorder(alice,claim("cancelled-ref"))).rejects.toMatchObject({code:"DUPLICATE_REFERENCE"});
+ await expect(recordClaim(claim("order-1"))).rejects.toMatchObject({code:"DUPLICATE_REFERENCE"});const cancelled=await recordClaim(claim("Cancelled-ref"));await c.withdrawPreorder(hr,cancelled,true);await expect(recordClaim(claim("cancelled-ref"))).rejects.toMatchObject({code:"DUPLICATE_REFERENCE"});
 });
 it("computes percentage commission and retains old rule snapshots after settings changes",async()=>{
- await c.updateCommissionPolicy(admin,{type:"PERCENT",value:"2.5",reason:"New percentage"});const id=await c.submitPreorder(alice,claim("pct"));expect((await db.preorder.findUniqueOrThrow({where:{id}})).commissionAmount.toFixed(2)).toBe("3.09");expect((await db.preorder.findUniqueOrThrow({where:{id:orderId}})).commissionAmount.toFixed(2)).toBe("12.35");await c.withdrawPreorder(alice,id);
- await expect(c.submitPreorder(alice,{reference:"no-value",reason:"claim"})).rejects.toMatchObject({code:"COMMISSION_RULE"});await expect(c.updateCommissionPolicy(hr,{type:"FIXED",value:"5",reason:"not admin"})).rejects.toMatchObject({status:403});
+ await c.updateCommissionPolicy(admin,{type:"PERCENT",value:"2.5",reason:"New percentage"});const id=await recordClaim(claim("pct"));expect((await db.preorder.findUniqueOrThrow({where:{id}})).commissionAmount.toFixed(2)).toBe("3.09");expect((await db.preorder.findUniqueOrThrow({where:{id:orderId}})).commissionAmount.toFixed(2)).toBe("12.35");await c.withdrawPreorder(hr,id,true);
+ await expect(recordClaim({reference:"no-value",reason:"claim"})).rejects.toMatchObject({code:"COMMISSION_RULE"});await expect(c.updateCommissionPolicy(hr,{type:"FIXED",value:"5",reason:"not admin"})).rejects.toMatchObject({status:403});
 });
 it("excludes pending commission and blocks closeout until assigned and approved or explicitly deferred",async()=>{
  now=new Date("2030-02-11T12:00:00Z");await calculate();expect((await db.salaryCalculation.findUniqueOrThrow({where:{employeeId_salaryPeriodId:{employeeId:aliceId,salaryPeriodId:periodId}}})).commissionAmount.toFixed(2)).toBe("0.00");await expect(advance("REVIEWED")).rejects.toMatchObject({code:"UNRESOLVED_PAY"});
@@ -85,8 +90,8 @@ it("approves a validated adjustment before salary inclusion, with idempotency an
 it("recalculates one employee/month row, rejects stale revisions and hidden own drafts",async()=>{
  const count=await db.salaryCalculation.count({where:{salaryPeriodId:periodId}});await Promise.all([calculate(),calculate()]);expect(await db.salaryCalculation.count({where:{salaryPeriodId:periodId}})).toBe(count);expect(count).toBe(3);const row=await db.salaryCalculation.findFirstOrThrow({where:{salaryPeriodId:periodId,employeeId:aliceId}});await expect(p.salaryData(alice,{id:row.id},true)).rejects.toMatchObject({status:404});await expect(p.salaryData(alice,{employeeId:bobId},true)).rejects.toMatchObject({status:400});
 });
-it("requires Admin for salary approval/finalization and advances the entire period atomically",async()=>{
- await advance("REVIEWED");await expect(p.transitionPeriod(hr,{periodId,revision:(await current()).inputRevision,status:"APPROVED"})).rejects.toMatchObject({status:403});await advance("APPROVED");await advance("FINALIZED");expect((await current()).status).toBe("FINALIZED");const own=(await p.salaryData(alice,{},true)).records[0];originalId=own.id;expect(own.finalAmount).toBe("4812.35");expect("snapshot" in own && own.snapshot?.adjustments[0].reason).toBe("Approved adjustment");bobOriginal=(await p.salaryData(bob,{},true)).records[0].id;
+it("allows authorized HR salary approval and advances the entire period atomically",async()=>{
+ await advance("REVIEWED");await p.transitionPeriod(hr,{periodId,revision:(await current()).inputRevision,status:"APPROVED"});await advance("APPROVED");await advance("FINALIZED");expect((await current()).status).toBe("FINALIZED");const own=(await p.salaryData(alice,{},true)).records[0];originalId=own.id;expect(own.finalAmount).toBe("4812.35");expect("snapshot" in own && own.snapshot?.adjustments[0].reason).toBe("Approved adjustment");bobOriginal=(await p.salaryData(bob,{},true)).records[0].id;
  expect((await db.preorder.findUniqueOrThrow({where:{id:orderId}})).status).toBe("INCLUDED");expect((await db.salaryAdjustment.findUniqueOrThrow({where:{id:adjId}})).includedSalaryCalculationId).toBe(originalId);await advance("FINALIZED");expect(await db.auditLog.count({where:{action:"SALARY_PERIOD_FINALIZED",entityId:periodId}})).toBe(1);
 });
 it("hides foreign finalized salary and own commission records by ID",async()=>{
@@ -98,7 +103,7 @@ it("database guards preserve final statements, periods, included commissions and
  const privileges=(await database.owner.query("SELECT has_table_privilege('employee_runtime','salary_calculations','DELETE') AS remove,has_table_privilege('employee_runtime','audit_logs','UPDATE') AS audit_edit")).rows[0];expect(privileges).toEqual({remove:false,audit_edit:false});
 });
 it("live commission revocation suppresses all breakdown/line item amounts but retains finalized total",async()=>{
- const security=await import("@/features/accounts/service");await security.updateAccountSecurity(admin,{userId:alice.userId,role:"EMPLOYEE",isActive:true,canManageCommissions:false,preorderCommissionEnabled:false});await expect(c.commissionData(alice)).rejects.toMatchObject({status:401});alice=identity(alice.userId,3);await expect(c.commissionData(alice)).rejects.toMatchObject({status:403});
+ const security=await import("@/features/accounts/service");await security.updateAccountSecurity(admin,{userId:alice.userId,role:"EMPLOYEE",isActive:true,canManageCommissions:false,preorderCommissionEnabled:false});await expect(c.commissionData(alice)).rejects.toMatchObject({status:401});alice=identity(alice.userId,3);await expect(c.commissionData(alice)).rejects.toMatchObject({status:404});
  const own=(await p.salaryData(alice,{id:originalId},true)).records[0];expect(Object.keys(own).sort()).toEqual(["finalAmount","id","period"]);expect(own.finalAmount).toBe("4812.35");expect(JSON.stringify(own)).not.toMatch(/commission|"12\.35"|snapshot|4812\.35.*reason/);
  const timeline=await import("@/features/people/timeline"),notifs=await import("@/features/review/notifications");expect((await timeline.ownTimeline(alice)).some(e=>e.type==="COMMISSION_DECIDED" || e.type==="SALARY_FINALIZED")).toBe(false);expect((await notifs.notificationList(alice)).some(n=>n.sourceType==="preorders")).toBe(false);expect((await notifs.notificationList(alice)).some(n=>n.sourceType==="salary_calculations")).toBe(true);
 });
@@ -145,10 +150,12 @@ it("a change in a neighboring month invalidates both boundary-week salary inputs
  const april=await db.salaryPeriod.findUniqueOrThrow({where:{startDate:new Date("2030-04-01")}}),mayId=await p.createPeriod(hr,{month:"2030-05"}),beforeApril=april.inputRevision,beforeMay=(await db.salaryPeriod.findUniqueOrThrow({where:{id:mayId}})).inputRevision;
  const req=await co.submitCorrection(bob,added("2030-05-01","03:00:00","04:00:00"));await approve(req);expect((await db.salaryPeriod.findUniqueOrThrow({where:{id:april.id}})).inputRevision).toBeGreaterThan(beforeApril);expect((await db.salaryPeriod.findUniqueOrThrow({where:{id:mayId}})).inputRevision).toBeGreaterThan(beforeMay);
 });
-it("historical pre-orders require retained eligibility valid at the order instant, rather than a current flag",async()=>{
+it("historical pre-orders require retained eligibility valid at the order instant, and a current eligibility grant",async()=>{
  const grant=await db.auditLog.findFirstOrThrow({where:{employeeId:aliceId,action:"ACCOUNT_SECURITY_CHANGED",after:{path:["preorderCommissionEnabled"],equals:true}}}),revocation=await db.auditLog.findFirstOrThrow({where:{employeeId:aliceId,action:"ACCOUNT_SECURITY_CHANGED",after:{path:["preorderCommissionEnabled"],equals:false}}});
  const good=new Date(Math.ceil(grant.eventTime.getTime()/1000)*1000),bad=new Date(Math.floor((revocation.eventTime.getTime()+2000)/1000)*1000);
  const data={employeeId:aliceId,reference:"historical-earned",orderAt:good.toISOString(),orderValue:"10",eligibilityEvidenceId:grant.id,commissionType:"FIXED",commissionValue:"0",reason:"Historical earning proof"};
+ await expect(c.submitPreorder(hr,data,true)).rejects.toMatchObject({status:404});
+ await db.employee.update({where:{id:aliceId},data:{preorderCommissionEnabled:true}});
  const id=await c.submitPreorder(hr,data,true);expect((await db.preorder.findUniqueOrThrow({where:{id}})).commissionAmount.toFixed(2)).toBe("0.00");await expect(c.submitPreorder(hr,{...data,reference:"after-revocation",orderAt:bad.toISOString()},true)).rejects.toMatchObject({code:"ELIGIBILITY_EVIDENCE"});await expect(c.submitPreorder(hr,{...data,reference:"foreign-proof",eligibilityEvidenceId:randomUUID()},true)).rejects.toMatchObject({code:"ELIGIBILITY_EVIDENCE"});
  const row=await db.preorder.findUniqueOrThrow({where:{id}});await c.decidePreorder(hr,{id,revision:row.revision,decision:"REJECTED",comment:"Zero claim used only as historical proof test"});
 });
@@ -160,7 +167,7 @@ it("approved daily unscheduled work requires an explicit reviewed Other adjustme
  const april=await db.salaryPeriod.findUniqueOrThrow({where:{startDate:new Date("2030-04-01")}});const req=await co.submitCorrection(hr,added("2030-04-02","03:00:00","04:00:00"),dayId);await approve(req);await calculate(april.id);await expect(advance("REVIEWED",april.id)).rejects.toMatchObject({code:"UNRESOLVED_PAY"});const id=await a.createAdjustment(hr,{employeeId:dayId,periodId:april.id,type:"OTHER",amount:"35",reason:"Reviewed unscheduled daily work on April 2; agreed amount 35",operationKey:randomUUID()}),row=await db.salaryAdjustment.findUniqueOrThrow({where:{id}});await a.decideAdjustment(hr,{id,revision:row.revision,decision:"APPROVED",comment:"Reviewed all unscheduled daily work for this month"});await calculate(april.id);await advance("REVIEWED",april.id);expect((await db.salaryCalculation.findUniqueOrThrow({where:{employeeId_salaryPeriodId:{employeeId:dayId,salaryPeriodId:april.id}}})).finalAmount.toFixed(2)).toBe("35.00");
 });
 it("HR may manage commission without personal eligibility but cannot decide their own financial proposals",async()=>{
- expect((await c.commissionData(hr,{},true)).records.length).toBeGreaterThan(0);await expect(c.commissionData(hr)).rejects.toMatchObject({status:403});
+ expect((await c.commissionData(hr,{},true)).records.length).toBeGreaterThan(0);await expect(c.commissionData(hr)).rejects.toMatchObject({status:404});
  const e=await db.employee.create({data:{userId:hr.userId,legalName:"HR Own Profile",employeeNumber:"HR-OWN",createdBy:admin.userId,employmentPeriods:{create:{startDate:new Date("2031-01-01"),departmentLabel:"Operations",positionLabel:"Manager",createdBy:admin.userId}}}}),id=await a.createAdjustment(hr,{employeeId:e.id,periodId:marId,type:"BONUS",amount:"10",reason:"Own request",operationKey:randomUUID()}),row=await db.salaryAdjustment.findUniqueOrThrow({where:{id}});await expect(a.decideAdjustment(hr,{id,revision:row.revision,decision:"APPROVED",comment:"Self"})).rejects.toMatchObject({status:403});
 });
 

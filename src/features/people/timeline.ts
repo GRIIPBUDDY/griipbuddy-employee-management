@@ -28,6 +28,10 @@ export async function employeeTimeline(identity: Identity | null, employeeId: un
       if (record.sourceType === "employee_documents") {
         if (!await db.employeeDocument.findFirst({ where: { id: record.sourceId!, employeeId: id, deletedAt: null, ...(personal ? { employeeVisible: true } : {}) }, select: { id: true } })) continue;
         if(personal&&!await documentParentVisible(db,id,record.sourceId!))continue;
+      } else if(record.sourceType==="shift_swap_requests") {
+        if(!await db.shiftSwapRequest.findFirst({where:{id:record.sourceId!,OR:[{requesterEmployeeId:id},{partnerEmployeeId:id}]},select:{id:true}}))continue;
+      } else if(record.sourceType==="task_assignments") {
+        if(!await db.taskAssignment.findFirst({where:{id:record.sourceId!,employeeId:id},select:{id:true}}))continue;
       } else if(record.sourceType==="leave_requests") {
         if(!await db.leaveRequest.findFirst({where:{id:record.sourceId!,employeeId:id},select:{id:true}}))continue;
       } else if(record.sourceType==="performance_reviews") {
@@ -56,7 +60,7 @@ export async function employeeTimeline(identity: Identity | null, employeeId: un
         if (record.sourceId !== id) continue;
       } else if (record.sourceType !== null) continue;
       const { creator, ...safe } = record;
-      const modules:Record<string,string>={leave_requests:"leave",performance_reviews:"performance",disciplinary_records:"warnings",asset_assignments:"assets"};
+      const modules:Record<string,string>={shift_swap_requests:"shift-swaps",task_assignments:"tasks",leave_requests:"leave",performance_reviews:"performance",disciplinary_records:"warnings",asset_assignments:"assets"};
       const module=record.sourceType?modules[record.sourceType]:undefined,href=module?`/${personal?"me":"manage"}/${module}?${module==="assets"?"assignmentId":"id"}=${record.sourceId}`:null;
       visible.push({ ...safe, href, creatorName: creator?.employee?.legalName ?? creator?.displayName ?? "Staff", manual: record.sourceType === null });
     }

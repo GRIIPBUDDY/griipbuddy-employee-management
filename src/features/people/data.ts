@@ -11,7 +11,7 @@ import { businessDate } from "@/lib/utils/business-date";
 const profileSelect = {
   id: true, employeeNumber: true, legalName: true, preferredName: true, phone: true, address: true, dateOfBirth: true, gender: true, nationality: true,
   emergencyContact: true, photoDocumentId: true, updatedAt: true, preorderCommissionEnabled: true,
-  user: { select: { email: true, role: true, isActive: true } },
+  user: { select: { email: true, role: true, isActive: true, accountStatus: true } },
   employmentPeriods: { orderBy: { startDate: "desc" as const }, select: { id: true, revision: true, startDate: true, endDate: true, departmentLabel: true, positionLabel: true, departmentId: true, positionId: true, department: { select: { name: true, isActive: true } }, position: { select: { name: true, isActive: true } },
     employmentType: true, workLocation: true, probationEndDate: true, managerEmployeeId: true, manager: { select: { legalName: true } } } },
 };
@@ -31,14 +31,14 @@ export async function employeeProfile(identity: Identity | null, inputId: unknow
     assertEmployeeScope(actor, id);
     const record = await db.employee.findFirst({ where: { id, ...(actor.role === "EMPLOYEE" ? { userId: actor.userId } : {}) }, select: profileSelect });
     if (!record) throw new AppError(404, "NOT_FOUND", "Employee record not found.");
-    return safeProfile(record);
+    return {...await safeProfile(record), preorderCommissionEnabled: actor.role === "EMPLOYEE" && !actor.preorderCommissionEnabled ? undefined : record.preorderCommissionEnabled};
   });
 }
 export async function ownProfile(identity: Identity | null) {
   return securityBoundary(identity, async actor => {
     if (!actor.employeeId) return null;
     const record = await db.employee.findFirst({ where: { id: actor.employeeId, userId: actor.userId }, select: profileSelect });
-    return record ? safeProfile(record) : null;
+    return record ? {...await safeProfile(record), preorderCommissionEnabled: !actor.preorderCommissionEnabled ? undefined : record.preorderCommissionEnabled} : null;
   });
 }
 const searchSchema = z.object({ search: z.string().trim().max(150).default(""), department: z.string().trim().max(100).default(""), status: z.enum(["ALL", "ACTIVE", "INACTIVE", "UPCOMING"]).default("ALL"), page: z.coerce.number().int().min(1).max(10000).default(1) });

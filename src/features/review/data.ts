@@ -10,22 +10,22 @@ import { addDays,localDate,dateValue,dayStart } from "@/features/time/dates";
 import { filterSchema,ownSummarySchema } from "./validation";
 import { localWeek } from "./calculation";
 import { summary,weekCalculation } from "./summary";
-function range(from:string|undefined,until:string|undefined,today:string, firstDay=1) {
- const start=from??localWeek(today,firstDay),end=until??addDays(start,7);
+function range(from:string|undefined,until:string|undefined,today:string) {
+ const start=from??today,end=until??addDays(start,1);
  if(end<=start || end>addDays(start,31))throw new AppError(400,"DATE_RANGE","Select a positive date range of at most 31 days. End date is exclusive.");return {from:start,until:end};
 }
 export async function ownSummary(identity:Identity|null,query:unknown={}) {
  return securityBoundary(identity,async actor=>{
   const v=validated(ownSummarySchema,query);if(!actor.employeeId)return null;
   const employeeId=actor.employeeId;
-  return db.$transaction(async tx=>{const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(tx),r=range(v.from,v.until,localDate(now,settings.timezone),settings.weekStartDay);return summary(tx,employeeId,r.from,r.until,now);},{isolationLevel:"RepeatableRead"});
+  return db.$transaction(async tx=>{const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(tx),r=range(v.from,v.until,localDate(now,settings.timezone));return summary(tx,employeeId,r.from,r.until,now);},{isolationLevel:"RepeatableRead"});
  });
 }
 export async function attendanceManagement(identity:Identity|null,query:unknown={}) {
  return securityBoundary(identity,async actor=>{
   assertRole(actor,["ADMIN","HR_MANAGER"]);const v=validated(filterSchema,query);
   return db.$transaction(async tx=>{
-   const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(tx),r=range(v.from,v.until,localDate(now,settings.timezone),settings.weekStartDay);
+   const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(tx),r=range(v.from,v.until,localDate(now,settings.timezone));
    const employees=await tx.employee.findMany({where:{...(v.employeeId?{id:v.employeeId}:{}),...(v.departmentId?{employmentPeriods:{some:{departmentId:v.departmentId,startDate:{lt:dateValue(r.until)},OR:[{endDate:null},{endDate:{gt:dateValue(r.from)}}]}}}:{})},orderBy:[{legalName:"asc"},{id:"asc"}],skip:(v.page-1)*10,take:11,select:{id:true,legalName:true,employeeNumber:true}});
    const records=[];
    for(const employee of employees.slice(0,10)){

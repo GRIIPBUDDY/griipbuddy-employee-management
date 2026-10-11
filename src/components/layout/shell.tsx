@@ -3,13 +3,13 @@ import { Navigation, type NavItem } from "./navigation";
 import { ProfileMenu } from "./profile-menu";
 import { UsersRound, Menu } from "lucide-react";
 export function AppShell({ actor, companyName, unread, children }: { actor: Actor; companyName: string; unread: number; children: React.ReactNode }) {
-  const personal: NavItem[] = [{ href: "/dashboard", label: "Dashboard" }, { href: "/notifications", label: `Notifications (${unread})` }];
+  const personal: NavItem[] = [{ href: "/account-settings", label: "Account settings" },{ href: "/dashboard", label: "Dashboard" }, { href: "/notifications", label: `Notifications (${unread})` }];
   if (actor.employeeId && actor.employmentActive) {
-    personal.push({ href: "/me", label: "My profile" }, { href: "/me/corrections", label: "Attendance corrections" }, { href: "/me/overtime", label: "Weekly overtime" }, ...["attendance", "schedule", "leave", "salary", "documents", "performance", "warnings", "work-records", "assets"].map(module => ({ href: `/me/${module}`, label: module === "work-records" ? "Work records" : module[0].toUpperCase() + module.slice(1) })));
+    personal.push({ href: "/me", label: "My profile" }, { href: "/me/shift-swaps", label: "Shift swaps" }, { href: "/me/tasks", label: "Tasks" }, { href: "/me/weekly-earnings", label: "Earnings" }, { href: "/me/corrections", label: "Attendance corrections" }, { href: "/me/overtime", label: "Weekly overtime" }, ...["attendance", "schedule", "leave", "salary", "documents", "performance", "warnings", "work-records", "assets"].map(module => ({ href: `/me/${module}`, label: module === "work-records" ? "Work records" : module[0].toUpperCase() + module.slice(1) })));
     if (actor.preorderCommissionEnabled) personal.push({ href: "/me/commissions", label: "Pre-order commission" });
   }
   const staff: NavItem[] = actor.role === "EMPLOYEE" ? [] : [
-    { href: "/manage/reports", label: "Reports" }, { href: "/manage/audit", label: "Audit review" },
+    { href: "/manage/shift-swaps", label: "Shift swap approvals" }, { href: "/manage/tasks", label: "Tasks" }, { href: "/manage/weekly-earnings", label: "Weekly earnings" }, { href: "/manage/reports", label: "Reports" }, { href: "/manage/audit", label: "Audit review" },
     { href: "/manage/employees", label: "Employees" }, { href: "/manage/corrections", label: "Correction review" }, { href: "/manage/overtime", label: "Overtime review" },
     { href: "/manage/departments", label: "Departments" }, { href: "/manage/positions", label: "Positions" },
     ...["attendance", "schedule", "leave", "salary", "documents", "performance", "warnings", "work-records", "assets"].map(module => ({ href: `/manage/${module}`, label: module === "work-records" ? "Work records" : module[0].toUpperCase() + module.slice(1) })),

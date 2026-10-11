@@ -10,6 +10,7 @@ import { ownSchedule } from "@/features/time/data";
 import { ownOvertime } from "@/features/review/overtime";
 import { absenceData } from "@/features/review/absence";
 import { salaryData } from "@/features/pay/periods";
+import { monthToDate } from "@/features/pay/weekly";
 import { commissionData } from "@/features/pay/commissions";
 import { notificationPage } from "@/features/review/notifications";
 import { auditData } from "./audit";
@@ -53,6 +54,6 @@ export async function personalDashboard(identity:Identity|null) {
   const [schedule,overtime,leave,notifications,salary,commissions]=await Promise.all([ownSchedule(identity),ownOvertime(identity),absenceData(identity),notificationPage(identity),salaryData(identity,{},true),actor.preorderCommissionEnabled?commissionData(identity):Promise.resolve(null)]);
   const start=schedule?dayStart(schedule.today,schedule.timezone):null,end=schedule?dayStart(addDays(schedule.today,1),schedule.timezone):null;
   const todaySessions=schedule&&start&&end?schedule.recent.filter(s=>s.checkinAt<end&&(!s.checkoutAt||s.checkoutAt>start)):[];
-  return {schedule,todaySessions,overtime,leave:leave.records.slice(0,5),notifications:{...notifications,records:notifications.records.slice(0,5)},salary:salary.records.slice(0,1),commissions:commissions?.records.slice(0,3)??null};
+  return {earnings:await monthToDate(identity),schedule,todaySessions,overtime,leave:leave.records.slice(0,5),notifications:{...notifications,records:notifications.records.slice(0,5)},salary:salary.records.slice(0,1),commissions:actor.preorderCommissionEnabled?commissions?.records.slice(0,3)??[]:undefined};
  });
 }

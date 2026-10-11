@@ -5,7 +5,7 @@ import { authorizedMutation } from "@/lib/db/mutation";
 import { audit, type Database } from "@/lib/db/audit";
 import { validated } from "@/lib/validation/schemas";
 import { AppError } from "@/lib/utils/errors";
-import type { Identity } from "@/types/auth";
+import type { Identity,Actor } from "@/types/auth";
 import { publishSchema, type SlotInput } from "./validation";
 import { validatePattern, validateVersionBoundaries } from "./occurrences";
 import { databaseNow } from "./clock";
@@ -19,7 +19,21 @@ export async function publishSchedule(identity: Identity | null, input: unknown)
   await securityBoundary(identity, async actor => assertRole(actor, ["ADMIN", "HR_MANAGER"]));
   const value = validated(publishSchema, input);
   validatePattern(value.slots); if (value.restoreSlots) validatePattern(value.restoreSlots);
-  try { return await authorizedMutation(identity, async (actor, tx) => {
+  try { return await authorizedMutation(identity, (actor, tx) => publishScheduleInTransaction(actor, tx, value)); } catch (error) {
+    if (typeof error === "object" && error && "code" in error && ["P2002", "P2004"].includes(String(error.code))) throw new AppError(409, "SCHEDULE_CONFLICT", "The schedule conflicts with an existing assignment. Reload and check its dates and periods.");
+    throw error;
+  }
+}
+// Shared transaction entry point for atomic, consented two-person swaps.
+export async function publishScheduleInTransaction(actor: Actor, tx: Database, value: ReturnType<typeof publishSchema.parse>) {
+ const source=value.baseScheduleId?await tx.workSchedule.findFirst({where:{id:value.baseScheduleId,employeeId:value.employeeId,supersededAt:null},include:patternInclude}):null;
+ if(value.duration==="WEEK")value={...value,effectiveUntil:addDays(value.effectiveFrom,7)};
+ if(value.duration==="INDEFINITE")value={...value,effectiveUntil:null};
+ if(source && value.editScope==="SERIES")value={...value,effectiveFrom:dateKey(source.effectiveFrom),effectiveUntil:source.effectiveUntil?dateKey(source.effectiveUntil):null};
+ if(source && value.editScope==="FUTURE")value={...value,effectiveUntil:source.effectiveUntil?dateKey(source.effectiveUntil):null};
+ if(source && value.editScope==="OCCURRENCE")value={...value,effectiveUntil:addDays(value.effectiveFrom,1),restoreSlots:source.slots.map(({weekday,startMinute,endMinute,endDayOffset})=>({weekday,startMinute,endMinute,endDayOffset}))};
+ validatePattern(value.slots); if(value.restoreSlots)validatePattern(value.restoreSlots);
+
     assertRole(actor, ["ADMIN", "HR_MANAGER"]);
     await tx.$queryRaw`SELECT id FROM employees WHERE id=${value.employeeId}::uuid FOR UPDATE`;
     const settings = await tx.organizationSettings.findUniqueOrThrow({ where: { id: 1 } });
@@ -56,10 +70,7 @@ export async function publishSchedule(identity: Identity | null, input: unknown)
     if (base && until && (!base.effectiveUntil || until < base.effectiveUntil)) await create(until, base.effectiveUntil, value.restoreSlots!, base.label, "SCHEDULE_RESTORED", base.holidayWorkRequired);
     validateVersionBoundaries(await tx.workSchedule.findMany({ where: { employeeId: value.employeeId, supersededAt: null }, include: patternInclude }));
     return id;
-  }); } catch (error) {
-    if (typeof error === "object" && error && "code" in error && ["P2002", "P2004"].includes(String(error.code))) throw new AppError(409, "SCHEDULE_CONFLICT", "The schedule conflicts with an existing assignment. Reload and check its dates and periods.");
-    throw error;
-  }
+
 }
 // Offboarding/shortening employment keeps original slots and session snapshots, while freeing future assignment ranges.
 export async function endFutureSchedules(tx: Database, actorUserId: string, employeeId: string, employmentPeriodId: string, end: Date, reason: string) {

@@ -14,7 +14,7 @@ export async function authenticateCredentials(input: unknown) {
     await tx.$queryRaw`SELECT id FROM users WHERE id = ${candidate.id}::uuid FOR UPDATE`;
     const user = await tx.user.findUniqueOrThrow({ where: { id: candidate.id } });
     const now = new Date();
-    if (!user.isActive || (user.lockedUntil && user.lockedUntil > now) ||
+    if (!user.isActive || user.accountStatus === "SUSPENDED" || (user.lockedUntil && user.lockedUntil > now) ||
       (user.mustChangePassword && (!user.temporaryPasswordExpiresAt || user.temporaryPasswordExpiresAt <= now))) {
       await verifyUnknown(password);
       return null;

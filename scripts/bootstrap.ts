@@ -17,7 +17,7 @@ try {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(73102301)`;
     if (await tx.user.count()) throw new Error("Bootstrap only runs on an empty user table.");
     const user = await tx.user.create({ data: { email: values.email, displayName: values.name, role: "ADMIN", passwordHash, mustChangePassword: true, temporaryPasswordExpiresAt: new Date(Date.now() + 86400000) } });
-    await tx.organizationSettings.create({ data: { companyName: "GriipBuddy", changedBy: user.id, overtimePolicyVersions: [{ effectiveFrom: "2026-01-05", thresholdSeconds: 144000 }] } });
+    await tx.organizationSettings.create({ data: { companyName: "GriipBuddy", changedBy: user.id, overtimePolicyVersions: [{ effectiveFrom: "2026-01-05", thresholdSeconds: 172800 }] } });
     await tx.auditLog.create({ data: { actorUserId: user.id, action: "BOOTSTRAP_ADMIN_CREATED", entity: "users", entityId: user.id, requestId: randomUUID(), after: { role: "ADMIN" } } });
   });
   console.log("Administrator and organization initialized. Change the temporary password on first login.");

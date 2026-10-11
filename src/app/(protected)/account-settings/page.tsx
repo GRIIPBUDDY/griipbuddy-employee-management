@@ -1,0 +1,7 @@
+import { getIdentity } from "@/lib/auth/request";
+import { pageResult } from "@/lib/auth/page-result";
+import { emailSettings } from "@/features/accounts/email";
+import { controlAction } from "@/features/accounts/control-actions";
+import { ActionForm } from "@/components/ui/action-form";
+import { Field } from "@/components/ui/field";
+export default async function Settings(){const data=await pageResult(emailSettings(await getIdentity()));return <><h1 className="text-2xl font-semibold">Account settings</h1><p>Current login email: {data.email}</p><section className="max-w-xl rounded-lg border bg-white p-5"><h2 className="mb-4 font-semibold">Change email</h2><ActionForm action={controlAction} submitLabel="Send verification"><input type="hidden" name="kind" value="email"/><Field label="New email" name="newEmail" type="email" required maxLength={254}/><Field label="Current password" name="currentPassword" type="password" autoComplete="current-password" required maxLength={128}/><p className="text-sm">Verify the new address within one hour. After confirmation, sign in again using the new email.</p></ActionForm></section>{data.requests.map(r=><article key={r.id} className="rounded-lg border bg-white p-4"><p>{r.newEmail} · {r.status} · {r.deliveryStatus}</p>{r.status==="COMPLETED" && !r.noticeDeliveredAt && <ActionForm action={controlAction} submitLabel="Retry previous-address notice"><input type="hidden" name="kind" value="retryNotice"/><input type="hidden" name="id" value={r.id}/></ActionForm>}</article>)}</>;}

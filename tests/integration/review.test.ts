@@ -11,7 +11,7 @@ let database:Awaited<ReturnType<typeof testPostgres>>,db:PrismaClient,c:typeof C
 let admin:Identity,hr:Identity,alice:Identity,bob:Identity,aliceId:string,bobId:string,hrId:string,alicePeriod:string,bobPeriod:string;
 let firstRequest:string,firstSession:string,secondSession:string,reviewId:string,openSession:string,staleRequest:string;
 let now=new Date("2030-01-07T00:00:00Z");
-const identity=(userId:string):Identity=>({userId,issuedAt:Date.now(),absoluteExpiresAt:Date.now()+43200000,sessionVersion:1});
+const identity=(userId:string):Identity=>{const now=Date.now();return {userId,issuedAt:now,absoluteExpiresAt:now+43200000,sessionVersion:1};};
 const at=(s:string)=>{now=new Date(s);};
 const add=(date:string,start:string,end:string)=>({type:"ADD",workDate:date,checkinAt:start,checkoutAt:end,reason:"Evidence from work log",operationKey:randomUUID()});
 const approve=(id:string)=>c.decideCorrection(hr,{id,decision:"APPROVED",comment:"Verified work evidence"});
@@ -20,7 +20,7 @@ beforeAll(async()=>{
  vi.spyOn(await import("@/features/time/clock"),"databaseNow").mockImplementation(async()=>new Date(now));
  c=await import("@/features/review/corrections");o=await import("@/features/review/overtime");d=await import("@/features/review/data");a=await import("@/features/review/absence");
  const user=await db.user.create({data:{email:"review-admin@example.test",role:"ADMIN",mustChangePassword:false,passwordHash:"synthetic"}});admin=identity(user.id);
- await db.organizationSettings.create({data:{companyName:"Review tests",changedBy:user.id,overtimePolicyVersions:[{effectiveFrom:"2020-01-06",thresholdSeconds:18000,ruleVersion:1}]}});
+ await db.organizationSettings.create({data:{companyName:"Review tests",changedBy:user.id,earningsEffectiveFrom:new Date("2031-01-01"),overtimePolicyVersions:[{effectiveFrom:"2020-01-06",thresholdSeconds:18000,ruleVersion:1}]}});
  for(const name of ["Alice","Bob","HR"]){const u=await db.user.create({data:{email:`${name.toLowerCase()}-review@example.test`,role:name==="HR"?"HR_MANAGER":"EMPLOYEE",mustChangePassword:false,passwordHash:"synthetic"}});
  const e=await db.employee.create({data:{userId:u.id,legalName:`${name} Review`,employeeNumber:name,createdBy:user.id,employmentPeriods:{create:{startDate:new Date("2020-01-01"),departmentLabel:"Operations",positionLabel:"Associate",createdBy:user.id}}},include:{employmentPeriods:true}});
  if(name==="Alice"){alice=identity(u.id);aliceId=e.id;alicePeriod=e.employmentPeriods[0].id;}else if(name==="Bob"){bob=identity(u.id);bobId=e.id;bobPeriod=e.employmentPeriods[0].id;}else{hr=identity(u.id);hrId=e.id;}}

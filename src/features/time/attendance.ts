@@ -1,6 +1,7 @@
 import "server-only";
+import { assertOperational } from "@/lib/authorization/policy";
 import { requiredOccurrence } from "@/features/review/absence";
-import { invalidateOvertime } from "@/features/review/overtime";
+import { invalidateOvertime,calculateOvertimeInTransaction } from "@/features/review/overtime";
 import { securityBoundary } from "@/lib/authorization/actor";
 import { authorizedMutation } from "@/lib/db/mutation";
 import { audit } from "@/lib/db/audit";
@@ -13,6 +14,7 @@ import { occurrence, checkinEligibility } from "./occurrences";
 import { databaseNow } from "./clock";
 import { addDays, dateKey, dateValue, localDate } from "./dates";
 export function ownTimeEmployee(actor: Actor) {
+  assertOperational(actor);
   if (!actor.employeeId || !actor.employmentActive) throw new AppError(403, "EMPLOYMENT_INACTIVE", "An active employee profile is required for check-in/check-out. Contact HR.");
   return actor.employeeId;
 }
@@ -76,7 +78,24 @@ export async function checkOut(identity: Identity | null, input: unknown) {
     await invalidateOvertime(tx, employeeId, actor.userId, session.checkinAt, now, now);
     await audit({ actorUserId: actor.userId, employeeId, action: "ATTENDANCE_CHECKED_OUT", entity: "attendance_sessions", entityId: session.id,
       before: { checkoutAt: null }, after: { checkoutAt: now.toISOString(), actualSeconds: (now.getTime() - session.checkinAt.getTime()) / 1000 } }, tx);
+    if(!await tx.attendanceSession.count({where:{employeeId,checkoutAt:null,voidedAt:null}})){const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}});if(session.source==="UNSCHEDULED" || session.scheduledEndAt && now>session.scheduledEndAt){const first=(await import("@/features/review/calculation")).localWeek(localDate(session.checkinAt,settings.timezone),settings.weekStartDay),last=(await import("@/features/review/calculation")).localWeek(localDate(now,settings.timezone),settings.weekStartDay);for(let week=first;week<=last;week=addDays(week,7)){const facts=await (await import("@/features/review/summary")).weekCalculation(tx,employeeId,week,now);if(!facts.blockers.length)await calculateOvertimeInTransaction(tx,actor,employeeId,week,now,true);}}}
     await timeEvent(tx, employeeId, actor.userId, now, "ATTENDANCE_CHECKED_OUT", "Employee checked out", "attendance_sessions", session.id);
     return { id: session.id, replayed: false };
   }); } catch (error) { attendanceConflict(error); }
+}
+// Explicit unscheduled workflow: never a fallback for a missed assigned slot.
+export async function checkInUnscheduled(identity:Identity|null,input:unknown){
+ await securityBoundary(identity,async a=>ownTimeEmployee(a));const value=validated((await import("zod")).z.object({operationKey:(await import("@/lib/validation/schemas")).uuidSchema}).strict(),input);
+ try{return await authorizedMutation(identity,async(a,tx)=>{
+  const employeeId=ownTimeEmployee(a);await tx.$queryRaw`SELECT id FROM employees WHERE id=${employeeId}::uuid FOR UPDATE`;
+  const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(tx),today=localDate(now,settings.timezone),dates=await import("./dates");
+  const replay=await tx.attendanceSession.findUnique({where:{employeeId_checkinOperationKey:{employeeId,checkinOperationKey:value.operationKey}}});if(replay){if(replay.source!=="UNSCHEDULED" || dateKey(replay.workDate)!==today)throw new AppError(409,"OPERATION_REUSED","Request key already used.");return {id:replay.id,replayed:true};}
+  if(await tx.attendanceSession.findFirst({where:{employeeId,checkoutAt:null,voidedAt:null}}))throw new AppError(409,"OPEN_SESSION","Check out before starting another session.");
+  const patterns=await tx.workSchedule.findMany({where:{employeeId,supersededAt:null,effectiveFrom:{lt:dateValue(addDays(today,1))},OR:[{effectiveUntil:null},{effectiveUntil:{gt:dateValue(addDays(today,-1))}}]},include:patternInclude});
+  const start=dates.dayStart(today,settings.timezone),end=dates.dayStart(addDays(today,1),settings.timezone);
+  for(const p of patterns)for(const date of [addDays(today,-1),today])for(const slot of p.slots){const o=occurrence(p,slot,date,settings.timezone,settings.earlyCheckinMinutes);if(o && o.scheduledStartAt<end && o.eligibleEndAt>start)throw new AppError(409,"SCHEDULE_EXISTS","A work schedule exists on this date. Use an eligible assigned session or request an authorized exception.");}
+  const stint=await tx.employmentPeriod.findFirst({where:{employeeId,startDate:{lte:dateValue(today)},OR:[{endDate:null},{endDate:{gt:dateValue(today)}}]}});if(!stint)throw new AppError(409,"EMPLOYMENT_INACTIVE","Active employment is required.");
+  const row=await tx.attendanceSession.create({data:{employeeId,employmentPeriodId:stint.id,workDate:dateValue(today),timezoneSnapshot:settings.timezone,rulesVersionSnapshot:settings.rulesVersion,earlyCheckinMinutesSnapshot:settings.earlyCheckinMinutes,checkinAt:now,source:"UNSCHEDULED",createdBy:a.userId,checkinOperationKey:value.operationKey}});
+  await invalidateOvertime(tx,employeeId,a.userId,now,null,now);await audit({actorUserId:a.userId,employeeId,action:"UNSCHEDULED_CHECKED_IN",entity:"attendance_sessions",entityId:row.id,after:{checkinAt:now.toISOString(),source:"UNSCHEDULED",workDate:today}},tx);await timeEvent(tx,employeeId,a.userId,now,"UNSCHEDULED_CHECKED_IN","Unscheduled work recorded","attendance_sessions",row.id);return {id:row.id,replayed:false};
+ });}catch(error){attendanceConflict(error);}
 }

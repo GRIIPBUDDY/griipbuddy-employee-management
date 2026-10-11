@@ -1,5 +1,5 @@
 "use server";
-import { signIn, signOut } from "@/auth";
+import { signInWithPolicy, signOut } from "@/auth";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -14,7 +14,7 @@ export async function loginAction(_: ActionState, form: FormData): Promise<Actio
   if (!input.success) return { error: "Enter a valid email and password." };
   try {
     await assertMutationOrigin();
-    await signIn("credentials", { ...input.data, redirect: false });
+    await signInWithPolicy(input.data, form.get("remember") === "on");
   } catch (error) {
     if (error instanceof AuthError) return { error: "Email or password was not accepted. Try again or contact an administrator." };
     return { error: safeMessage(error) };

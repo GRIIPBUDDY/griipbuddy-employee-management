@@ -42,7 +42,7 @@ export async function employeeSchedule(identity: Identity | null, inputEmployeeI
     if (own && employeeId !== actor.employeeId) throw new AppError(404, "NOT_FOUND", "Employee schedule not found.");
     const employee = await db.employee.findUnique({ where: { id: employeeId }, select: { id: true, legalName: true, employeeNumber: true } });
     if (!employee) throw new AppError(404, "NOT_FOUND", "Employee schedule not found.");
-    const settings = await db.organizationSettings.findUniqueOrThrow({ where: { id: 1 }, select: { timezone: true, earlyCheckinMinutes: true, weekStartDay: true } });
+    const settings = await db.organizationSettings.findUniqueOrThrow({ where: { id: 1 }, select: { timezone: true, earlyCheckinMinutes: true, weekStartDay: true,standardHoursVersions:true } });
     const now = await databaseNow(db), today = localDate(now, settings.timezone), week = localWeek(value.week ?? today, settings.weekStartDay), weekEnd = addDays(week, 7);
     const low = dateValue(addDays(week < today ? week : today, -1)), high = dateValue(addDays(weekEnd > addDays(today, 8) ? weekEnd : addDays(today, 8), 1));
     const patterns = await db.workSchedule.findMany({ where: { employeeId, supersededAt: null, effectiveFrom: { lt: high }, OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: low } }] }, include: patternInclude });
@@ -63,12 +63,13 @@ export async function employeeSchedule(identity: Identity | null, inputEmployeeI
       if(required.earliest) o.earliestCheckinAt=required.earliest;
       const excused=!required.earliest || now<=o.eligibleEndAt && now>=o.scheduledStartAt && now.getTime()>=required.remaining[0].start*1000 && !required.remaining.some(r=>now.getTime()/1000>=r.start && now.getTime()/1000<=r.end);
       const eligibility = excused?{allowed:false,reason:"Excused by approved leave or holiday. Contact HR for special work."}:checkinEligibility(o, now);
-      return { ...o, canCheckin: own && actor.employmentActive && !active && eligibility.allowed, reason: active ? "Check out of your current session before checking in again." : eligibility.reason,
+      return { ...o, canCheckin: own && actor.accountStatus!=="ON_HOLD" && actor.employmentActive && !active && eligibility.allowed, reason: active ? "Check out of your current session before checking in again." : eligibility.reason,
         status: currentlyWorking ? "CURRENTLY_WORKING" : coverage.some(s => s.checkoutAt) ? "COMPLETED" : now < o.earliestCheckinAt ? "UPCOMING" : eligibility.allowed ? "READY" : "NOT_ELIGIBLE", late: now > o.scheduledStartAt };
     }));
     const fromInstant = dayStart(week, settings.timezone), untilInstant = dayStart(weekEnd, settings.timezone);
     const actualIntervals = await db.attendanceSession.findMany({ where: { employeeId, voidedAt: null, checkoutAt: { gt: fromInstant }, checkinAt: { lt: untilInstant } }, select: { checkinAt: true, checkoutAt: true } });
-    return { employee, now, today, timezone: settings.timezone, earlyCheckinMinutes: settings.earlyCheckinMinutes, week, weekEnd, next,
+    const hasAssignedToday=live.occurrences.some(o=>o.scheduledStartAt<dayStart(addDays(today,1),settings.timezone) && o.eligibleEndAt>dayStart(today,settings.timezone));
+    return { canUnscheduled:own && actor.employmentActive && actor.accountStatus!=="ON_HOLD" && !active && !hasAssignedToday,operational:actor.accountStatus!=="ON_HOLD",standardWeeklyHours:((settings.standardHoursVersions as {effectiveFrom:string;hours:number}[]).filter(v=>v.effectiveFrom<=week).at(-1)?.hours??48),employee, now, today, timezone: settings.timezone, earlyCheckinMinutes: settings.earlyCheckinMinutes, week, weekEnd, next,
       periods, active: active ? sessionView(active, now) : null, recent: recent.map(s => sessionView(s, now)), versions,
       scheduledSeconds: weekly.occurrences.reduce((sum, o) => sum + clippedSeconds(o.scheduledStartAt, o.eligibleEndAt, fromInstant, untilInstant), 0),
       actualSeconds: actualIntervals.reduce((sum, s) => sum + clippedSeconds(s.checkinAt, s.checkoutAt!, fromInstant, untilInstant), 0),
@@ -86,10 +87,11 @@ export async function attendanceHistory(identity: Identity | null, inputEmployee
     if (own && employeeId !== actor.employeeId) throw new AppError(404, "NOT_FOUND", "Attendance history not found.");
     const employee = await db.employee.findUnique({ where: { id: employeeId }, select: { id: true, legalName: true, employeeNumber: true } });
     if (!employee) throw new AppError(404, "NOT_FOUND", "Attendance history not found.");
-    const [now, total, records, settings] = await Promise.all([databaseNow(db), db.attendanceSession.count({ where: { employeeId } }),
-      db.attendanceSession.findMany({ where: { employeeId }, skip: (value.page - 1) * 25, take: 25, orderBy: [{ checkinAt: "desc" }, { id: "desc" }], select: attendanceSelect }),
-      db.organizationSettings.findUniqueOrThrow({ where: { id: 1 }, select: { timezone: true } })]);
-    return { employee, timezone: settings.timezone, now, records: records.map(s => sessionView(s, now)), total, page: value.page, pages: Math.max(1, Math.ceil(total / 25)) };
+    const settings=await db.organizationSettings.findUniqueOrThrow({where:{id:1},select:{timezone:true}}),now=await databaseNow(db),from=value.from??localDate(now,settings.timezone),until=value.until??addDays(from,1);
+    if(until<=from || until>addDays(from,31))throw new AppError(400,"DATE_RANGE","Choose up to 31 organization-local dates; end is exclusive.");
+    const where={employeeId,checkinAt:{lt:dayStart(until,settings.timezone)},OR:[{checkoutAt:null},{checkoutAt:{gt:dayStart(from,settings.timezone)}}]};
+    const [total,records]=await Promise.all([db.attendanceSession.count({where}),db.attendanceSession.findMany({where,skip:(value.page-1)*25,take:25,orderBy:[{checkinAt:"desc"},{id:"desc"}],select:attendanceSelect})]);
+    return {employee,timezone:settings.timezone,now,from,until,operational:actor.accountStatus!=="ON_HOLD",records:records.map(s=>sessionView(s,now)),total,page:value.page,pages:Math.max(1,Math.ceil(total/25))};
   });
 }
 export async function ownAttendance(identity: Identity | null, query: unknown = {}) {

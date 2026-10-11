@@ -7,7 +7,7 @@ import type * as Records from "@/features/people-operations/records";
 import type * as Assets from "@/features/people-operations/assets";
 import type * as Absence from "@/features/review/absence";
 let database:Awaited<ReturnType<typeof testPostgres>>,db:PrismaClient,r:typeof Records,a:typeof Assets,l:typeof Absence,admin:Identity,hr:Identity,alice:Identity,bob:Identity,aliceId:string,bobId:string,hrId:string,aliceStint:string,bobStint:string,hrStint:string,reviewId:string,warningId:string,privateWarningId:string,docId:string,assetId:string,assignmentId:string;
-const identity=(userId:string):Identity=>({userId,sessionVersion:1,issuedAt:Date.now(),absoluteExpiresAt:Date.now()+43200000});
+const identity=(userId:string):Identity=>{const now=Date.now();return {userId,sessionVersion:1,issuedAt:now,absoluteExpiresAt:now+43200000};};
 const review=(employeeId=aliceId,employmentPeriodId=aliceStint)=>({employeeId,employmentPeriodId,startDate:"2030-01-01",endDate:"2030-02-01",overallRating:4,productivity:4,workQuality:3,communication:5,attendance:4,responsibility:5,strengths:"Reliable delivery",improvementAreas:"Documentation",reviewerComments:"Employee-facing comments",staffNotes:"CONFIDENTIAL performance",employeeVisible:true});
 const warning=(employeeId=aliceId,employmentPeriodId=aliceStint)=>({employeeId,employmentPeriodId,issueDate:"2030-01-10",severity:"WARNING",reason:"Evidence reviewed",description:"Official employee-facing description",actionTaken:"Discuss expectations",staffNotes:"CONFIDENTIAL warning",employeeVisible:true,acknowledgementRequested:true,attachmentDocumentId:docId});
 const leave=(key=randomUUID())=>({startDate:"2030-01-14",endDate:"2030-01-15",category:"SICK",type:"PAID",reason:"Recovery",operationKey:key});

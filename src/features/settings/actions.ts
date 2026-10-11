@@ -7,7 +7,7 @@ import type { ActionState } from "@/types/auth";
 export async function settingsAction(_: ActionState, form: FormData): Promise<ActionState> {
   try {
     await assertMutationOrigin();
-    await updateSettings(await getIdentity(), { companyName: form.get("companyName"), timezone: form.get("timezone"), earlyCheckinMinutes: form.get("earlyCheckinMinutes") });
+    await updateSettings(await getIdentity(), { companyName: form.get("companyName"), timezone: form.get("timezone"), earlyCheckinMinutes: form.get("earlyCheckinMinutes"), ...(form.has("currency") ? {currency: form.get("currency")} : {}) });
     revalidatePath("/", "layout");
     return { success: "Organization settings saved." };
   } catch (error) { return { error: safeMessage(error) }; }
