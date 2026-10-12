@@ -1,5 +1,7 @@
 # Hostinger deployment record — griipbuddy.cloud
 
+Current status: **live at https://griipbuddy.cloud**. The data-preserving UI/overtime update was published on 12 October 2026; see [PRODUCTION_UI_RELEASE.md](PRODUCTION_UI_RELEASE.md) for the current source/image identity, exact data verification, backup and rollback record. The installation details below describe the original release.
+
 Source repository: https://github.com/nahianahmed3832/griipbuddy-employee-management (private).
 
 The server is 72.60.107.88, Ubuntu 24.04, x86_64, with Docker 29.1.3 and Compose 5.0.1. Inspection found 16 existing application containers and host Nginx/Certbot on ports 80/443. This deployment adds only the dedicated `griipbuddy-employee` Compose project and its own hostname route.
@@ -26,7 +28,7 @@ Organization defaults: BDT, Asia/Dhaka, Monday workweek, 48-hour weekly overtime
 
 Before release: 84 unit tests, 207 PostgreSQL integration tests (including the updated migration-count check), production webpack build, type checking and lint. The disposable production HTTP suite passed 331 checks using real Auth.js cookies and PostgreSQL. No destructive test suite runs against production.
 
-## Server acceptance and pending publication
+## Original installation acceptance and current publication
 
 Image: `sha256:104c866530f3be279ecf65209036873d07fee9d04dc5a5746b28ea6afe894aaf`, AMD64; native argon2/sharp modules verified. PostgreSQL uses the pinned 18.4 Bookworm image in Compose. All 10 migrations and restricted runtime grants succeeded.
 
@@ -34,7 +36,8 @@ Application and database containers are healthy. Loopback readiness returns `rea
 
 The daily due-notification timer is installed for 18:10 UTC (00:10 Asia/Dhaka), with advisory-lock/deduplication protection. Its first run succeeded with zero records processed. The existing griipbuddy.com website still returns HTTP 200.
 
-The hostname-specific HTTP route is installed for ACME validation and redirects to HTTPS. At the time of this record, the DNS A record still points to 2.57.91.91. The proposed A-record target is 72.60.107.88; the www CNAME remains griipbuddy.cloud. DNS publication awaits the browser policy's action-time confirmation; the new HTTPS certificate and final public-origin checks follow that change.
+The hostname-specific route now serves https://griipbuddy.cloud with the existing verified certificate and redirects HTTP/www to the canonical HTTPS origin. Public login, readiness and protected-route checks passed after the current application-only release. The domain/proxy configuration was preserved by the update.
 
-An off-server backup/restore proposal was blocked by automatic approval review because the export would transfer the Admin password hash and private account data from the VPS to the Mac without explicit payload/destination approval. No export was performed. The user was asked to approve an encrypted copy in the ignored private local backup directory. Automatic offsite backups and the optional production email-delivery adapter are not configured.
+The current release retained all 32 production tables byte for byte, the original PostgreSQL container and private document volume, and existing authentication/database secrets. A fresh protected database/document recovery set was encrypted and restored into a separate disposable project, with all table digests matching the cutover snapshot. No real employee, HR or Admin data was reset or replaced during the update.
 
+Verified encrypted backups are retained on the VPS. Automated off-server backups and the optional production email-delivery adapter remain unconfigured. Detailed recovery and rollback paths are in the current release report.
