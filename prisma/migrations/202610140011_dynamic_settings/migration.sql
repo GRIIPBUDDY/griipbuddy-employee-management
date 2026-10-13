@@ -83,7 +83,8 @@ DO $$ DECLARE c record;BEGIN
 END $$;
 ALTER TABLE assets ADD CONSTRAINT asset_type_code CHECK (type ~ '^[A-Z][A-Z0-9_]{0,19}$');
 ALTER TABLE employee_documents ALTER COLUMN type TYPE VARCHAR(20) USING type::text;
-DROP TYPE "DocumentType";
+-- The "DocumentType" enum is intentionally kept (unused) so the previous release can still write documents
+-- if it ever has to be restored: its enum-typed values are assigned to the text column.
 ALTER TABLE employee_documents ADD CONSTRAINT document_type_code CHECK (type ~ '^[A-Z][A-Z0-9_]{0,19}$');
 
 -- Adjustment categories label the payroll kind (bonus, deduction, other) without changing the arithmetic.
