@@ -19,10 +19,19 @@ import { capturePeriod,payrollRoster } from "./capture";
 import { calculateWeeklyMonth } from "./weekly";
 import { calculatePay } from "./engine";
 import { decimal } from "./money";
+import { moduleState } from "@/features/settings/config";
 import { periodSchema,calculationSchema,transitionSchema,listSchema } from "./validation";
 export const payJson=(value:unknown)=>JSON.parse(JSON.stringify(value)) as Prisma.InputJsonObject;
 export async function openPeriod(tx:Database,id:string) {
  const p=await tx.salaryPeriod.findUnique({where:{id}});if(!p)throw new AppError(404,"NOT_FOUND","Salary period not found.");if(p.status==="FINALIZED")throw new AppError(409,"FINALIZED","Finalized salary is immutable. Use a later reviewed correction.");return p;
+}
+// Salary is paid monthly. With weekly statements switched off, an open weekly-ledger month moves to the
+// monthly attendance method; a month that already froze weekly statements must finish on that ledger.
+async function monthlyMethod(tx:Database,actor:Actor,p:SalaryPeriod) {
+ if(p.calculationMethod!=="WEEKLY_ATTENDANCE" || moduleState((await tx.organizationSettings.findUniqueOrThrow({where:{id:1},select:{enabledModules:true}})).enabledModules).weeklyEarnings)return p;
+ if(await tx.weeklyEarningStatement.count({where:{status:"FINALIZED",weekStartDate:{lt:p.endDate},weekEndDate:{gt:p.startDate}}}))throw new AppError(409,"WEEKLY_LEDGER_MONTH","This month already has finalized weekly statements. Turn on “Weekly earning statements (legacy)” in Settings → Modules to finish it.");
+ const next=await tx.salaryPeriod.update({where:{id:p.id},data:{calculationMethod:"MONTHLY_ATTENDANCE"}});
+ await audit({actorUserId:actor.userId,action:"SALARY_PERIOD_METHOD_CHANGED",entity:"salary_periods",entityId:p.id,before:{calculationMethod:p.calculationMethod},after:{calculationMethod:next.calculationMethod}},tx);return next;
 }
 async function restrictedPeriod(tx:Database,actor:Actor,p:SalaryPeriod) {
  if(await tx.preorder.count({where:{salaryPeriodId:p.id,status:{in:["PENDING","APPROVED","INCLUDED"]}}}) || await tx.salaryAdjustment.count({where:{salaryPeriodId:p.id,commissionRelated:true}}))payStaff(actor,true);
@@ -32,7 +41,7 @@ export async function createPeriod(identity:Identity|null,input:unknown) {
  let from:string,until:string;try{const date=Temporal.PlainDate.from(`${v.month}-01`);if(date.year<1900 || date.year>2199)throw new Error();from=date.toString();until=date.add({months:1}).toString();}catch{throw new AppError(400,"MONTH","Choose a valid calendar month from 1900 through 2199.");}
  return authorizedMutation(identity,async(actor,tx)=>{
   payStaff(actor);const existing=await tx.salaryPeriod.findUnique({where:{startDate:dateValue(from)}});if(existing)return existing.id;
-  const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),p=await tx.salaryPeriod.create({data:{startDate:dateValue(from),endDate:dateValue(until),timezoneSnapshot:settings.timezone,currency:settings.currency,calculationMethod:dateValue(from)>=settings.earningsEffectiveFrom?"WEEKLY_ATTENDANCE":"LEGACY_MONTHLY",createdBy:actor.userId}});
+  const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),p=await tx.salaryPeriod.create({data:{startDate:dateValue(from),endDate:dateValue(until),timezoneSnapshot:settings.timezone,currency:settings.currency,calculationMethod:dateValue(from)>=settings.earningsEffectiveFrom?(moduleState(settings.enabledModules).weeklyEarnings?"WEEKLY_ATTENDANCE":"MONTHLY_ATTENDANCE"):"LEGACY_MONTHLY",createdBy:actor.userId}});
   await audit({actorUserId:actor.userId,action:"SALARY_PERIOD_CREATED",entity:"salary_periods",entityId:p.id,after:{from,until,currency:p.currency}},tx);return p.id;
  });
 }
@@ -41,7 +50,7 @@ export async function calculatePeriod(identity:Identity|null,input:unknown) {
  // Capture the revision and authoritative facts under the existing mutation lock; arithmetic
  // runs outside it. The second lock validates revision/roster/current authority before commit.
  const captured=await authorizedMutation(identity,async(actor,tx)=>{
-  payStaff(actor);const p=await openPeriod(tx,v.periodId);await restrictedPeriod(tx,actor,p);
+  payStaff(actor);const p=await monthlyMethod(tx,actor,await openPeriod(tx,v.periodId));await restrictedPeriod(tx,actor,p);
   if(v.revision!==p.inputRevision)throw new AppError(409,"STALE","Salary inputs changed. Refresh before calculating.");
   const facts=await capturePeriod(tx,p,await databaseNow(tx));if(facts.unassigned && !canCommissionStaff(actor))payStaff(actor,true);return {p,...facts};
  });

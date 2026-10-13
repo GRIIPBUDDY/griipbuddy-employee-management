@@ -5,7 +5,7 @@ import { ShellFrame } from "./shell-frame";
  * Navigation is derived from the actor's server-side permissions. Unavailable features are omitted entirely
  * (never shown disabled), so employees without pre-order access see no trace of that feature.
  */
-export function navigationFor(actor: Actor, unread: number): NavGroup[] {
+export function navigationFor(actor: Actor, unread: number, disabled: string[] = []): NavGroup[] {
   const groups: NavGroup[] = [{ label: "Overview", items: [{ href: "/dashboard", label: "Dashboard", icon: "dashboard" }, { href: "/notifications", label: "Notifications", icon: "notifications", badge: unread }] }];
   const personal = !!actor.employeeId && actor.employmentActive, commissions = actor.preorderCommissionEnabled && personal;
   if (actor.role !== "EMPLOYEE") {
@@ -20,12 +20,13 @@ export function navigationFor(actor: Actor, unread: number): NavGroup[] {
     if (personal) groups.push({ label: "My workspace", collapsible: true, items: [{ href: "/me", label: "My profile", icon: "profile" }, { href: "/me/schedule", label: "My schedule", icon: "schedule" }, { href: "/me/attendance", label: "My attendance", icon: "attendance" }, { href: "/me/tasks", label: "My tasks", icon: "tasks" }, { href: "/me/leave", label: "My leave", icon: "leave" }, { href: "/me/weekly-earnings", label: "My earnings", icon: "weekly" }, { href: "/me/salary", label: "My salary", icon: "salary" }, ...(commissions ? [{ href: "/me/commissions", label: "My pre-orders", icon: "percent" }] : [])] });
   } else if (personal) groups.push(
     { label: "My work", items: [{ href: "/me/schedule", label: "Schedule", icon: "schedule" }, { href: "/me/attendance", label: "Attendance", icon: "attendance" }, { href: "/me/overtime", label: "Overtime", icon: "overtime" }, { href: "/me/tasks", label: "Tasks", icon: "tasks" }, { href: "/me/shift-swaps", label: "Shift swaps", icon: "swaps" }, { href: "/me/corrections", label: "Corrections", icon: "corrections" }] },
-    { label: "My pay", items: [{ href: "/me/weekly-earnings", label: "Earnings", icon: "weekly" }, { href: "/me/salary", label: "Salary statements", icon: "salary" }, { href: "/me/compensation", label: "Compensation", icon: "adjustments" }, ...(commissions ? [{ href: "/me/commissions", label: "Pre-order commission", icon: "percent" }] : [])] },
+    { label: "My pay", items: [{ href: "/me/weekly-earnings", label: "Earnings", icon: "weekly" }, { href: "/me/salary", label: "Salary & payslips", icon: "salary" }, { href: "/me/compensation", label: "Compensation", icon: "adjustments" }, ...(commissions ? [{ href: "/me/commissions", label: "Pre-order commission", icon: "percent" }] : [])] },
     { label: "My records", items: [{ href: "/me", label: "Profile", icon: "profile" }, { href: "/me/documents", label: "Documents", icon: "documents" }, { href: "/me/leave", label: "Leave", icon: "leave" }, { href: "/me/performance", label: "Performance", icon: "performance" }, { href: "/me/warnings", label: "Notices", icon: "warnings" }, { href: "/me/work-records", label: "Work records", icon: "records" }, { href: "/me/assets", label: "Assets", icon: "assets" }] },
   );
-  return groups;
+  // Switched-off modules disappear from navigation; their pages and APIs also return not found.
+  return groups.map(g => ({ ...g, items: g.items.filter(i => !disabled.includes(i.href)) })).filter(g => g.items.length);
 }
-export function AppShell({ actor, companyName, unread, children }: { actor: Actor; companyName: string; unread: number; children: React.ReactNode }) {
+export function AppShell({ actor, companyName, logo, disabled, unread, children }: { actor: Actor; companyName: string; logo: string; disabled: string[]; unread: number; children: React.ReactNode }) {
   const role = actor.role === "ADMIN" ? "Administrator" : actor.role === "HR_MANAGER" ? "HR / Manager" : "Employee";
-  return <ShellFrame groups={navigationFor(actor, unread)} name={actor.name} email={actor.email} role={role} companyName={companyName} unread={unread} onHold={actor.accountStatus === "ON_HOLD"}>{children}</ShellFrame>;
+  return <ShellFrame groups={navigationFor(actor, unread, disabled)} logo={logo} name={actor.name} email={actor.email} role={role} companyName={companyName} unread={unread} onHold={actor.accountStatus === "ON_HOLD"}>{children}</ShellFrame>;
 }

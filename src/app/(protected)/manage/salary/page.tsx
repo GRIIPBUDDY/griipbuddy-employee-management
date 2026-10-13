@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { CalendarPlus, Wallet, Check } from "lucide-react";
+import { CalendarPlus, Wallet, Check, FileDown, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/features/pay/currency";
 import { summarizeBlockers } from "@/features/pay/blockers";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -27,7 +28,7 @@ function Stepper({ status, paid }: { status: string; paid: boolean }) {
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const q = await searchParams, identity = await getIdentity(), data = await pageResult(periodData(identity, q.id ? { id: q.id } : { page: q.page ?? 1 })), selected = q.id ? data.records[0] : undefined, settings = await pageResult(organizationSummary(identity));
   if (!selected) return <>
-    <PageHeader title="Salary & payments" description="Monthly salary consolidates finalized weekly statements and approved adjustments. Finalizing does not transfer money — payment is recorded separately." actions={<Dialog variant="default" trigger={<><CalendarPlus size={16} aria-hidden="true" />New salary month</>} title="Create salary month" description={`Calendar month in ${settings.timezone}, currency ${settings.currency}.`} size="sm"><ActionForm action={payAction} submitLabel="Create month"><Hidden values={{ kind: "period" }} /><Field type="month" name="month" label="Salary month" required /></ActionForm></Dialog>} />
+    <PageHeader title="Salary & payments" description="Monthly salary is calculated from reviewed attendance, approved overtime, leave, adjustments and commissions. Finalizing does not transfer money — payment is recorded separately." actions={<Dialog variant="default" trigger={<><CalendarPlus size={16} aria-hidden="true" />New salary month</>} title="Create salary month" description={`Calendar month in ${settings.timezone}, currency ${settings.currency}.`} size="sm"><ActionForm action={payAction} submitLabel="Create month"><Hidden values={{ kind: "period" }} /><Field type="month" name="month" label="Salary month" required /></ActionForm></Dialog>} />
     <PayNav />
     {!data.records.length ? <EmptyState icon={Wallet} title="No salary months yet" description="Create a month to calculate, review and finalize employee salaries." /> :
     <TableContainer label="Salary months"><table className="data-table min-w-[720px]"><thead><tr><th>Month</th><th>Status</th><th>Payment</th><th>Currency</th><th>Created</th><th className="text-right">Action</th></tr></thead><tbody>{data.records.map(p => <tr key={p.id}>
@@ -40,8 +41,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const total = data.calculations.reduce((sum, r) => sum + Number(r.finalAmount), 0);
   return <>
     <PageHeader breadcrumbs={[{ label: "Salary & payments", href: "/manage/salary" }, { label: month }]} title={month} description={`${rangeLabel(dateKey(p.startDate), addDays(dateKey(p.endDate), -1))} · ${p.currency} · input revision ${p.inputRevision}`}
-      actions={<Link className="link text-sm" href={`/manage/adjustments?periodId=${p.id}`}>Monthly adjustments</Link>} />
-    <Card><CardHeader><CardTitle>Progress</CardTitle><CardDescription>Review begins after every intersecting week has ended. Each step is audited.</CardDescription></CardHeader><CardContent className="space-y-4"><Stepper status={p.status} paid={p.paymentStatus === "PAID"} />
+      actions={<div className="flex flex-wrap items-center gap-2"><Link className="link mr-2 text-sm" href={`/manage/adjustments?periodId=${p.id}`}>Monthly adjustments</Link>{data.calculations.length > 0 && <Button asChild variant="outline" size="sm"><a href={`/api/manage/salary/${p.id}/register`}><FileDown size={15} aria-hidden="true" />Payment register PDF</a></Button>}{p.status === "FINALIZED" && <Button asChild variant="outline" size="sm"><a href={`/api/manage/salary/${p.id}/payments`}><Download size={15} aria-hidden="true" />Bank / mobile payment CSV</a></Button>}</div>} />
+    <Card><CardHeader><CardTitle>Progress</CardTitle><CardDescription>Calculate the whole roster, review, approve and finalize. Review opens once the month and its last overtime week have ended. Each step is audited.</CardDescription></CardHeader><CardContent className="space-y-4"><Stepper status={p.status} paid={p.paymentStatus === "PAID"} />
       {canTransition && <div className="flex flex-wrap items-center gap-2">
         <ActionForm compact action={payAction} submitVariant="outline" submitLabel={p.status === "DRAFT" ? "Calculate all employees" : "Recalculate all employees"}><Hidden values={{ kind: "calculate", periodId: p.id, revision: p.inputRevision }} /></ActionForm>
         {p.status === "CALCULATED" && <ActionForm compact action={payAction} submitLabel="Complete review" confirmation={{ title: "Complete the salary review?", description: "Confirms that the employee calculations and their sources have been checked.", label: "Complete review" }}><Hidden values={{ kind: "transition", periodId: p.id, revision: p.inputRevision, status: "REVIEWED" }} /></ActionForm>}

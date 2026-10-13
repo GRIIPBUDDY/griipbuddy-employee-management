@@ -10,6 +10,7 @@ import { AppError } from "@/lib/utils/errors";
 import type { Identity } from "@/types/auth";
 import { recordSchema, correctRecordSchema, deleteRecordSchema } from "./validation";
 import {documentParentVisible,publishedWarning} from "@/features/people-operations/access";
+import { requireModule } from "@/features/settings/config";
 
 export async function employeeTimeline(identity: Identity | null, employeeId: unknown, own = false) {
   return securityBoundary(identity, async actor => {
@@ -70,7 +71,7 @@ export async function employeeTimeline(identity: Identity | null, employeeId: un
 export async function ownTimeline(identity: Identity | null) {
   return securityBoundary(identity, async actor => actor.employeeId ? employeeTimeline(identity, actor.employeeId, true) : []);
 }
-export async function createWorkRecord(identity: Identity | null, input: unknown) {
+export async function createWorkRecord(identity: Identity | null, input: unknown) { await requireModule("workRecords");
   await securityBoundary(identity, async actor => assertRole(actor, ["ADMIN", "HR_MANAGER"]));
   const value = validated(recordSchema, input);
   return authorizedMutation(identity, async (actor, tx) => {
@@ -83,7 +84,7 @@ export async function createWorkRecord(identity: Identity | null, input: unknown
     return record.id;
   });
 }
-export async function correctWorkRecord(identity: Identity | null, input: unknown) {
+export async function correctWorkRecord(identity: Identity | null, input: unknown) { await requireModule("workRecords");
   await securityBoundary(identity, async actor => assertRole(actor, ["ADMIN", "HR_MANAGER"]));
   const value = validated(correctRecordSchema, input);
   return authorizedMutation(identity, async (actor, tx) => {
@@ -97,7 +98,7 @@ export async function correctWorkRecord(identity: Identity | null, input: unknow
       after: { type: value.type, title: value.title, description: value.description, eventDate: value.eventDate, employeeVisible: value.employeeVisible } }, tx);
   });
 }
-export async function deleteWorkRecord(identity: Identity | null, input: unknown) {
+export async function deleteWorkRecord(identity: Identity | null, input: unknown) { await requireModule("workRecords");
   await securityBoundary(identity, async actor => assertRole(actor, ["ADMIN", "HR_MANAGER"]));
   const value = validated(deleteRecordSchema, input);
   return authorizedMutation(identity, async (actor, tx) => {

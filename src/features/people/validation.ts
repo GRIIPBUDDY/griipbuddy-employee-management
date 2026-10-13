@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { dateSchema, passwordSchema, uuidSchema } from "@/lib/validation/schemas";
+import { dateSchema, passwordSchema, uuidSchema, optionCode } from "@/lib/validation/schemas";
 const optionalText = (max: number) => z.string().trim().max(max).transform(v => v || null);
 const optionalDate = z.union([dateSchema, z.literal("")]).transform(v => v ? new Date(`${v}T00:00:00.000Z`) : null);
 export const contactFields = {
@@ -16,7 +16,7 @@ export const employmentSchema = z.object({
   departmentId: z.union([uuidSchema, z.literal("")]).optional().transform(v => v || null),
   positionId: z.union([uuidSchema, z.literal("")]).optional().transform(v => v || null),
   departmentLabel: z.string().trim().max(100).default(""), positionLabel: z.string().trim().max(100).default(""),
-  employmentType: z.enum(["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN", "OTHER"]),
+  employmentType: optionCode,
   workLocation: optionalText(100), probationEndDate: optionalDate,
   managerEmployeeId: z.union([uuidSchema, z.literal("")]).transform(v => v || null),
 }).strict().superRefine((v, ctx) => {
@@ -41,7 +41,7 @@ export const recordSchema = z.object({
 export const correctRecordSchema = recordSchema.extend({ recordId: uuidSchema, expectedUpdatedAt: z.iso.datetime(), reason: z.string().trim().min(1).max(500) });
 export const deleteRecordSchema = z.object({ employeeId: uuidSchema, recordId: uuidSchema, reason: z.string().trim().min(1).max(500) }).strict();
 export const documentSchema = z.object({
-  employeeId: uuidSchema, type: z.enum(["PASSPORT", "NATIONAL_ID", "EMPLOYMENT_CONTRACT", "EDUCATION", "VISA_WORK_PERMIT", "BANK", "OTHER"]),
+  employeeId: uuidSchema, type: optionCode,
   displayName: z.string().trim().min(1).max(150).refine(v => !Array.from(v).some(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127), "Use a plain document name."),
   issuedOn: optionalDate, expiresOn: optionalDate,
   employeeVisible: z.boolean(), profilePhoto: z.boolean(),

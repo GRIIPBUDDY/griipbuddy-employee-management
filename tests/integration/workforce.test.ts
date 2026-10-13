@@ -11,7 +11,8 @@ beforeAll(async()=>{
  database=await testPostgres();process.env.DATABASE_URL=database.runtimeUrl;process.env.ALLOW_DEV_EMAIL_PREVIEW="true";process.env.APP_BASE_URL="http://localhost:3000";
  db=(await import("@/lib/db/client")).db;const hash=await (await import("@/lib/auth/passwords")).hashPassword(password);
  const u=await db.user.create({data:{email:"owner@workforce.test",role:"ADMIN",passwordHash:hash,mustChangePassword:false}});admin=identity(u.id);
- await db.organizationSettings.create({data:{companyName:"Synthetic Workforce",changedBy:u.id,overtimePolicyVersions:[],timezone:"Asia/Dhaka"}});
+ // This suite covers the legacy weekly-statement ledger, which is switched off by default (salary is monthly).
+ await db.organizationSettings.create({data:{companyName:"Synthetic Workforce",changedBy:u.id,overtimePolicyVersions:[],timezone:"Asia/Dhaka",enabledModules:{weeklyEarnings:true}}});
  hr=identity((await db.user.create({data:{email:"hr@workforce.test",role:"HR_MANAGER",passwordHash:hash,mustChangePassword:false,canManageCommissions:true}})).id);
  for(const name of ["Alice","Bob"]){const u=await db.user.create({data:{email:`${name.toLowerCase()}@workforce.test`,role:"EMPLOYEE",passwordHash:hash,mustChangePassword:false}});const e=await db.employee.create({data:{userId:u.id,employeeNumber:name,legalName:name,createdBy:admin.userId,employmentPeriods:{create:{startDate:new Date("2020-01-01"),departmentLabel:"Operations",positionLabel:"Associate",createdBy:admin.userId}}}});if(name==="Alice"){alice=identity(u.id);aliceId=e.id;}else{bob=identity(u.id);bobId=e.id;}}
 });

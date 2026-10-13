@@ -12,6 +12,7 @@ import { documentSchema, deleteDocumentSchema, documentVisibilitySchema } from "
 import { peopleEvent } from "./service";
 import type { FileHandle } from "node:fs/promises";
 import { documentParentVisible } from "@/features/people-operations/access";
+import { assertOption } from "@/features/settings/config";
 
 export async function listDocuments(identity: Identity | null, employeeId: unknown, personal = false) {
   return securityBoundary(identity, async actor => {
@@ -32,6 +33,7 @@ export async function uploadDocument(identity: Identity | null, input: unknown, 
     return authorizedMutation(identity, async (actor, tx) => {
       assertRole(actor, ["ADMIN", "HR_MANAGER"]);
       if (!await tx.employee.findUnique({ where: { id: value.employeeId }, select: { id: true } })) throw new AppError(404, "NOT_FOUND", "Employee record not found.");
+      await assertOption(tx, "DOCUMENT_TYPE", value.type);
       if (value.employmentPeriodId && !await tx.employmentPeriod.findFirst({ where: { id: value.employmentPeriodId, employeeId: value.employeeId }, select: { id: true } })) throw new AppError(404, "NOT_FOUND", "Employment record not found.");
       // Shared physical-deletion lock namespace: future backup/cleanup tools must use 73102302.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(73102302)`;

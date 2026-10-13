@@ -8,16 +8,19 @@ import { TableContainer, Cell2 } from "@/components/ui/table";
 import { deleteDocumentAction, documentVisibilityAction } from "@/features/people/actions";
 import { DocumentUpload } from "./document-upload";
 import type { listDocuments } from "@/features/people/documents";
+import { optionItems, optionLabels } from "@/features/settings/config";
 const day = (date: Date | null) => date?.toISOString().slice(0, 10);
-export function UploadDocumentButton({ employeeId }: { employeeId: string }) {
-  return <Dialog variant="default" trigger={<><Upload size={16} aria-hidden="true" />Upload document</>} title="Upload a private document" description="Documents are stored privately and released to the employee only when you choose."><DocumentUpload employeeId={employeeId} /></Dialog>;
+export async function UploadDocumentButton({ employeeId }: { employeeId: string }) {
+  const types = (await optionItems("DOCUMENT_TYPE")).map(t => ({ code: t.code, label: t.label }));
+  return <Dialog variant="default" trigger={<><Upload size={16} aria-hidden="true" />Upload document</>} title="Upload a private document" description="Documents are stored privately and released to the employee only when you choose."><DocumentUpload employeeId={employeeId} types={types} /></Dialog>;
 }
-export function Documents({ documents, employeeId, staff }: { documents: Awaited<ReturnType<typeof listDocuments>>; employeeId: string; staff: boolean }) {
+export async function Documents({ documents, employeeId, staff }: { documents: Awaited<ReturnType<typeof listDocuments>>; employeeId: string; staff: boolean }) {
+  const labels = await optionLabels("DOCUMENT_TYPE");
   if (!documents.length) return <EmptyState icon={FileText} title="No documents yet" description={staff ? "Upload contracts, identification and other records. They stay private until released." : "Documents released to you by HR will appear here."} />;
   return <TableContainer label="Documents"><table className="data-table min-w-[720px]"><thead><tr><th>Document</th><th>Uploaded</th><th>Validity</th>{staff && <th>Access</th>}<th className="text-right">Actions</th></tr></thead><tbody>{documents.map(document => {
     const url = staff ? `/api/employees/${employeeId}/documents/${document.id}` : `/api/me/documents/${document.id}`, expired = document.expiresOn && document.expiresOn < new Date();
     return <tr key={document.id}>
-      <td><Cell2 primary={document.displayName} secondary={`${document.type.replaceAll("_", " ").toLowerCase().replace(/^./, c => c.toUpperCase())} · ${Math.ceil(document.fileSize / 1024)} KiB · ${document.mimeType === "application/pdf" ? "PDF" : "Image"}`} /></td>
+      <td><Cell2 primary={document.displayName} secondary={`${labels[document.type] ?? document.type.replaceAll("_", " ").toLowerCase().replace(/^./, c => c.toUpperCase())} · ${Math.ceil(document.fileSize / 1024)} KiB · ${document.mimeType === "application/pdf" ? "PDF" : "Image"}`} /></td>
       <td><Cell2 primary={day(document.createdAt)} secondary={document.uploader.employee?.legalName ?? document.uploader.displayName ?? "Staff"} /></td>
       <td className="whitespace-nowrap">{document.expiresOn ? <StatusBadge status={expired ? "EXPIRED" : "VALID"} label={`${expired ? "Expired" : "Expires"} ${day(document.expiresOn)}`} /> : <span className="text-muted-foreground">{document.issuedOn ? `Issued ${day(document.issuedOn)}` : "No expiry"}</span>}</td>
       {staff && <td><StatusBadge status={document.employeeVisible ? "PUBLISHED" : "DRAFT"} label={document.employeeVisible ? "Released" : "Staff only"} /></td>}

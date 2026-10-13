@@ -1,7 +1,7 @@
 import { Field, CheckboxField } from "@/components/ui/field";
 import { ActionForm } from "@/components/ui/action-form";
 import { Alert } from "@/components/ui/alert";
-import { AuthFrame } from "@/components/layout/auth-frame";
+import { AuthFrame } from "@/components/layout/sign-in-frame";
 import { loginAction } from "@/features/accounts/actions";
 export default async function Login({ searchParams }: { searchParams: Promise<{ changed?: string }> }) {
   const { changed } = await searchParams;

@@ -2,7 +2,7 @@ import { pageActor } from "@/lib/auth/request";
 import { Field } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { ActionForm } from "@/components/ui/action-form";
-import { AuthFrame } from "@/components/layout/auth-frame";
+import { AuthFrame } from "@/components/layout/sign-in-frame";
 import { passwordAction, logoutAction } from "@/features/accounts/actions";
 export const dynamic = "force-dynamic";
 export default async function ChangePassword() {

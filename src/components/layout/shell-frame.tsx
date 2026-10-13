@@ -9,11 +9,11 @@ import { Navigation, activeNavigation, type NavGroup } from "./navigation";
 import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/ui/page-header";
 import { Toasts } from "@/components/ui/toasts";
-export function ShellFrame({ groups, companyName, name, email, role, unread, onHold, children }: { groups: NavGroup[]; companyName: string; name: string; email: string; role: string; unread: number; onHold: boolean; children: React.ReactNode }) {
+export function ShellFrame({ groups, companyName, logo, name, email, role, unread, onHold, children }: { groups: NavGroup[]; companyName: string; logo: string; name: string; email: string; role: string; unread: number; onHold: boolean; children: React.ReactNode }) {
   const drawer = useRef<HTMLDialogElement>(null), path = usePathname(), items = groups.flatMap(g => g.items), active = activeNavigation(items, path), group = groups.find(g => g.items.includes(active!));
   const crumbs = [...(group && group.label !== "Overview" ? [{ label: group.label }] : []), ...(active ? [{ label: active.label, href: active.href }] : [{ label: "Workspace" }])];
   const sidebar = <div className="flex min-h-full flex-col">
-    <Link href="/dashboard" className="mb-5 flex items-center gap-3 rounded-lg px-1.5 py-1"><span className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-white shadow-xs"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2" /><path d="M3.5 19c.8-3.2 3-5 5.5-5s4.7 1.8 5.5 5" /><path d="M16 5.2a3 3 0 0 1 0 5.6M18.5 19c-.3-1.6-1-2.9-2-3.8" /></svg></span><span className="min-w-0"><span className="block text-sm font-semibold leading-5">GriipBuddy People</span><span className="block truncate text-xs text-muted-foreground">Workforce operations</span></span></Link>
+    <Link href="/dashboard" className="mb-5 flex items-center gap-3 rounded-lg px-1.5 py-1"><img src={logo} alt="" width={36} height={36} className="h-9 w-9 shrink-0 rounded-lg shadow-xs" /><span className="min-w-0"><span className="block truncate text-sm font-semibold leading-5">{companyName}</span><span className="block truncate text-xs text-muted-foreground">Workforce operations</span></span></Link>
     <Navigation groups={groups} />
     <div className="mt-auto pt-6"><div className="flex items-center gap-2 rounded-lg border bg-subtle px-3 py-2.5 text-xs"><Building size={14} aria-hidden="true" className="shrink-0 text-muted-foreground" /><span className="min-w-0"><span className="block truncate font-medium text-foreground">{companyName}</span><span className="text-muted-foreground">{role}</span></span></div></div>
   </div>;

@@ -16,6 +16,7 @@ import { hashPassword } from "@/lib/auth/passwords";
 import type { Identity } from "@/types/auth";
 import type { z } from "zod";
 import { personalSchema, newEmployeeSchema, updateEmployeeSchema, updateEmploymentSchema, deactivateSchema, contactSchema } from "./validation";
+import { assertOption } from "@/features/settings/config";
 
 function personalData(value: z.infer<typeof personalSchema>) {
   const { emergencyName, emergencyPhone, emergencyRelationship, ...data } = value;
@@ -50,6 +51,7 @@ export async function createEmployee(identity: Identity | null, input: unknown) 
       }
       const employee = await tx.employee.create({ data: { ...personalData(value.personal), userId, createdBy: current.userId } });
       if (value.employment.managerEmployeeId) await tx.employee.findUniqueOrThrow({ where: { id: value.employment.managerEmployeeId }, select: { id: true } });
+      await assertOption(tx, "EMPLOYMENT_TYPE", value.employment.employmentType);
       const catalogs = await resolveEmploymentCatalogs(tx, current.userId, value.employment);
       await tx.employmentPeriod.create({ data: { ...value.employment, ...catalogs, employeeId: employee.id, createdBy: current.userId } });
       await audit({ actorUserId: current.userId, employeeId: employee.id, action: "EMPLOYEE_CREATED", entity: "employees", entityId: employee.id,
@@ -97,6 +99,7 @@ export async function updateEmployment(identity: Identity | null, input: unknown
     if (value.employment.startDate.getTime() !== period.startDate.getTime() && (await tx.workSchedule.count({ where: { employmentPeriodId: period.id } }) || await tx.attendanceSession.count({ where: { employmentPeriodId: period.id } }))) throw new AppError(409, "EMPLOYMENT_TIME_HISTORY", "Employment start is fixed after time records exist. Use a reviewed historical correction.");
     if (period.revision !== value.revision) throw new AppError(409, "STALE", "This employment record changed. Reload before editing.");
     if (value.employment.managerEmployeeId === value.employeeId) throw new AppError(400, "VALIDATION", "An employee cannot be their own manager.");
+    await assertOption(tx, "EMPLOYMENT_TYPE", value.employment.employmentType, period.employmentType);
     const catalogs = await resolveEmploymentCatalogs(tx, actor.userId, value.employment, period);
     await tx.employmentPeriod.update({ where: { id: period.id }, data: { ...value.employment, ...catalogs, revision: { increment: 1 } } });
     await audit({ actorUserId: actor.userId, employeeId: period.employeeId, action: "EMPLOYMENT_CHANGED", entity: "employment_periods", entityId: period.id, reason: value.reason,
