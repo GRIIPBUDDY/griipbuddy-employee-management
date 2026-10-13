@@ -1,2 +1,4 @@
 import Link from "next/link";
-export default function NotFound() { return <main id="main" className="mx-auto max-w-xl p-12"><h1 className="text-2xl font-semibold">Page not found</h1><p className="my-4 text-muted-foreground">The requested page or record is unavailable.</p><Link className="text-blue-700 underline" href="/dashboard">Back to dashboard</Link></main>; }
+import { Button } from "@/components/ui/button";
+import { StatePage } from "@/components/layout/auth-frame";
+export default function NotFound() { return <StatePage code="404" title="Page not found" description="The page or record you requested doesn’t exist or isn’t available to you."><Button asChild><Link href="/dashboard">Back to dashboard</Link></Button></StatePage>; }

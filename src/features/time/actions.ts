@@ -5,8 +5,8 @@ import { safeMessage } from "@/lib/utils/errors";
 import type { ActionState } from "@/types/auth";
 import { publishSchedule } from "./schedules";
 import { checkIn, checkOut,checkInUnscheduled } from "./attendance";
+import { timeMinutes } from "./schedule-draft";
 const text = (form: FormData, key: string) => String(form.get(key) ?? "");
-function minute(time: string) { if (!/^\d{2}:\d{2}$/.test(time)) return NaN; const [hour, minute] = time.split(":").map(Number); return hour <= 23 && minute <= 59 ? hour * 60 + minute : NaN; }
 function refresh() { revalidatePath("/me", "layout"); revalidatePath("/manage", "layout"); }
 export async function publishAction(_: ActionState, form: FormData): Promise<ActionState> {
   try {
@@ -17,7 +17,7 @@ export async function publishAction(_: ActionState, form: FormData): Promise<Act
       duration:text(form,"duration")||"CUSTOM",editScope:text(form,"editScope")||"CUSTOM",
       holidayWorkRequired: form.get("holidayWorkRequired") === "on",
       slots: form.getAll("slotKey").map(key => ({ weekday: Number(form.get(`weekday-${key}`)),
-        startMinute: minute(text(form, `start-${key}`)), endMinute: minute(text(form, `end-${key}`)), endDayOffset: Number(form.get(`endday-${key}`)) })),
+        startMinute: timeMinutes(text(form, `start-${key}`)), endMinute: timeMinutes(text(form, `end-${key}`)), endDayOffset: Number(form.get(`endday-${key}`)) })),
       ...(form.get("restorePrevious") === "on" ? { restoreSlots: JSON.parse(text(form, "restoreSlots")) } : {}),
     });
     refresh(); return { success: "Schedule published. Previous assignments and attendance context are preserved." };

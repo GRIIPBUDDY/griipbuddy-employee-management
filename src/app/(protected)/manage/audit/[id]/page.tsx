@@ -1,6 +1,16 @@
-import Link from "next/link";
 import { getIdentity } from "@/lib/auth/request";
 import { pageResult } from "@/lib/auth/page-result";
 import { auditData } from "@/features/insights/audit";
 import { displayInstant } from "@/features/time/dates";
-export default async function Page({params}:{params:Promise<{id:string}>}){const data=await pageResult(auditData(await getIdentity(),{},(await params).id)),row=data.records[0];return <><h1 className="text-3xl font-semibold">Audit event</h1><Link className="text-blue-700" href="/manage/audit">Back to audit review</Link><div className="space-y-3 rounded-xl border bg-white p-5 text-sm"><h2 className="font-semibold">{row.action.replaceAll("_"," ")}</h2><p>{displayInstant(row.eventTime,data.timezone)} · {row.actorName}</p><p className="break-all">{row.entity} · {row.entityId}</p><p>{row.employeeName??"No affected employee"}</p><p className="break-all">Request: {row.requestId}</p>{row.systemSource&&<p>System source: {row.systemSource}</p>}{row.reason&&<p className="whitespace-pre-wrap">Reason: {row.reason}</p>}{["before","after"].map(key=><section key={key}><h2 className="mb-2 font-semibold">{key==="before"?"Before":"After"}</h2><pre className="max-w-full overflow-auto whitespace-pre-wrap break-all rounded bg-slate-50 p-4">{JSON.stringify(key==="before"?row.before:row.after,null,2)??"No structured values recorded."}</pre></section>)}</div></>;}
+import { PageHeader } from "@/components/ui/page-header";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { DescriptionList } from "@/components/ui/description-list";
+const words = (v: string) => v.replaceAll("_", " ").toLowerCase().replace(/^./, c => c.toUpperCase());
+export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+  const data = await pageResult(auditData(await getIdentity(), {}, (await params).id)), row = data.records[0];
+  return <>
+    <PageHeader breadcrumbs={[{ label: "Audit log", href: "/manage/audit" }, { label: "Event" }]} title={words(row.action)} description={`${displayInstant(row.eventTime, data.timezone)} · ${row.actorName}`} />
+    <Card><CardHeader><CardTitle>Event details</CardTitle></CardHeader><CardContent><DescriptionList items={[["Record type", row.entity.replaceAll("_", " ")], ["Record ID", <span key="r" className="break-all font-mono text-xs">{row.entityId ?? "—"}</span>], ["Affected employee", row.employeeName ?? "None"], ["Performed by", row.actorName], ["Request", <span key="q" className="break-all font-mono text-xs">{row.requestId}</span>], ["System source", row.systemSource ?? "—"], ...(row.reason ? [["Reason", <span key="why" className="whitespace-pre-wrap font-normal">{row.reason}</span>] as [string, React.ReactNode]] : [])]} /></CardContent></Card>
+    <div className="grid gap-5 lg:grid-cols-2">{(["before", "after"] as const).map(key => <Card key={key}><CardHeader><CardTitle>{key === "before" ? "Before" : "After"}</CardTitle></CardHeader><CardContent><pre className="max-h-[32rem] max-w-full overflow-auto whitespace-pre-wrap break-all rounded-lg border bg-subtle p-4 font-mono text-xs leading-5">{JSON.stringify(row[key], null, 2) ?? "No structured values recorded."}</pre></CardContent></Card>)}</div>
+  </>;
+}

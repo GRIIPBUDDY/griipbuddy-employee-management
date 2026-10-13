@@ -15,7 +15,7 @@ import { peopleEvent } from "@/features/people/service";
 export async function listAccounts(identity: Identity | null) {
   return securityBoundary(identity, async actor => {
     assertRole(actor, ["ADMIN"]);
-    return db.user.findMany({ orderBy: { email: "asc" }, take: 100, select: { id: true, email: true, displayName: true, role: true, isActive: true,
+    return db.user.findMany({ orderBy: { email: "asc" }, take: 100, select: { id: true, email: true, displayName: true, role: true, isActive: true, accountStatus: true,
       mustChangePassword: true, canManageCommissions: true, employee: { select: { legalName: true, preorderCommissionEnabled: true } } } });
   });
 }

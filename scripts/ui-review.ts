@@ -14,7 +14,7 @@ database.owner.on("error",()=>{if(!stopping)console.error("Local fixture connect
 process.env.DATABASE_URL=database.runtimeUrl;
 const {db}=await import("../src/lib/db/client");
 const password="Local-Review-Only-2026!",passwordHash=await argon2.hash(password);
-const identity=(userId:string):Identity=>({userId,sessionVersion:1,issuedAt:Date.now(),absoluteExpiresAt:Date.now()+43200000});
+const identity=(userId:string):Identity=>{const issuedAt=Date.now();return {userId,sessionVersion:1,issuedAt,absoluteExpiresAt:issuedAt+43200000};};
 const admin=await db.user.create({data:{email:"admin@local.example.test",displayName:"Morgan Admin",role:"ADMIN",passwordHash,mustChangePassword:false}});
 const hr=await db.user.create({data:{email:"hr@local.example.test",displayName:"Samira HR",role:"HR_MANAGER",passwordHash,mustChangePassword:false}});
 const today=localDate(new Date(),"Asia/Dhaka"),week=addDays(weekStart(today),-7);
@@ -40,6 +40,10 @@ for(const [index,name] of ["Alex Rahman","Jordan Hasan"].entries()){
  }
  await tasks.assignTasks(identity(hr.id),{employeeIds:[employee.id],title:index?"Prepare next week's rota":"Review the warehouse handover",description:"Confirm the checklist and add any missing handover notes.",assignedDate:today,dueDate:addDays(today,1),priority:"HIGH",operationKey:randomUUID()});
 }
+// Unassigned synthetic employee for schedule publication and own-portal acceptance.
+const scheduleQaUser=await db.user.create({data:{email:"schedule@local.example.test",role:"EMPLOYEE",passwordHash,mustChangePassword:false}});
+const scheduleQa=await db.employee.create({data:{userId:scheduleQaUser.id,employeeNumber:"GB-QA-SCHEDULE",legalName:"Taylor Schedule QA",createdBy:admin.id,employmentPeriods:{create:{startDate:new Date("2020-01-01"),departmentLabel:"Local QA",positionLabel:"Schedule fixture",createdBy:admin.id}}},include:{employmentPeriods:true}});
+await rates.publishRate(identity(hr.id),{employeeId:scheduleQa.id,employmentPeriodId:scheduleQa.employmentPeriods[0].id,effectiveFrom:"2020-01-01",effectiveUntil:"",payType:"MONTHLY",baseAmount:"30000",overtimeHourlyRate:"100",overtimeHourlyEquivalent:"",overtimeMultiplier:"1",reason:"Synthetic local review terms"});
 const port=3021,base=`http://127.0.0.1:${port}`,documents=await mkdtemp(join(tmpdir(),"griipbuddy-ui-documents-"));
 await cp(".next/static",".next/standalone/.next/static",{recursive:true});
 const env:NodeJS.ProcessEnv={...process.env,DATABASE_URL:database.runtimeUrl,PRIVATE_DOCUMENTS_DIR:documents,APP_BASE_URL:base,AUTH_URL:base,AUTH_SECRET:randomBytes(32).toString("hex"),ALLOW_LOCAL_HTTP:"true",NODE_ENV:"production",NEXT_TELEMETRY_DISABLED:"1",PORT:String(port),HOSTNAME:"127.0.0.1"};
@@ -50,7 +54,7 @@ let ready=false;
 for(let i=0;i<100;i++){try{ready=(await fetch(base+"/api/health/ready")).ok;}catch{/* Local server is starting. */}if(ready)break;if(server.exitCode!==null)throw new Error("Local review server exited: "+output);await new Promise(resolve=>setTimeout(resolve,100));}
 if(!ready)throw new Error("Local review server failed readiness.");
 await mkdir(".local/ui-review",{recursive:true,mode:0o700});
-await writeFile(".local/ui-review/session.json",JSON.stringify({pid:process.pid,base,week,employeeId,reviewId,staleReviewId,staleEmployeeId,password,adminEmail:admin.email,hrEmail:hr.email,employeeEmail:"employee@local.example.test",runtimeUrl:database.runtimeUrl},null,2),{mode:0o600});
+await writeFile(".local/ui-review/session.json",JSON.stringify({pid:process.pid,base,week,employeeId,reviewId,staleReviewId,staleEmployeeId,scheduleQaEmployeeId:scheduleQa.id,password,adminEmail:admin.email,hrEmail:hr.email,employeeEmail:"employee@local.example.test",runtimeUrl:database.runtimeUrl},null,2),{mode:0o600});
 console.log(`Local review ready: ${base}/login\nSynthetic employee week: ${week}\nReview data saved privately to .local/ui-review/session.json`);
 await new Promise<void>(resolve=>{const done=()=>{stopping=true;resolve();};process.once("SIGINT",done);process.once("SIGTERM",done);server.once("exit",done);});
 server.kill("SIGTERM");await Promise.allSettled([db.$disconnect(),database.stop()]);await rm(documents,{recursive:true,force:true});await rm(".local/ui-review/session.json",{force:true});

@@ -1,2 +1,11 @@
-import {getIdentity} from "@/lib/auth/request";import {pageResult} from "@/lib/auth/page-result";import {assignmentData} from "@/features/people-operations/assets";import {Assignments} from "@/components/people-operations/assets";import {OperationsNav,PageLinks} from "@/components/people-operations/records";
-export default async function Page({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){const raw=await searchParams,q=Object.fromEntries(Object.entries(raw).filter((v):v is [string,string]=>typeof v[1]==='string'&&v[1]!=='')),{assignmentId,...query}=q,data=await pageResult(assignmentData(await getIdentity(),{...query,...(assignmentId?{id:assignmentId}:{})}));return <><h1 className="text-3xl font-semibold">My company assets</h1><OperationsNav staff={false}/><Assignments data={data} staff={false}/><PageLinks page={data.page} hasNext={data.hasNext} query={q}/></>;}
+import { getIdentity } from "@/lib/auth/request";
+import { pageResult } from "@/lib/auth/page-result";
+import { assignmentData } from "@/features/people-operations/assets";
+import { Assignments } from "@/components/people-operations/assets";
+import { PageHeader } from "@/components/ui/page-header";
+import { Pagination } from "@/components/ui/pagination";
+import { strings, type Query } from "@/lib/utils/query";
+export default async function Page({ searchParams }: { searchParams: Promise<Query> }) {
+  const q = strings(await searchParams), { assignmentId, ...query } = q, data = await pageResult(assignmentData(await getIdentity(), { ...query, ...(assignmentId ? { id: assignmentId } : {}) }));
+  return <><PageHeader title="My company assets" description="Equipment issued to you and its return history." /><Assignments data={data} staff={false} /><Pagination page={data.page} hasNext={data.hasNext} query={q} /></>;
+}

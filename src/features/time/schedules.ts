@@ -10,6 +10,7 @@ import { publishSchema, type SlotInput } from "./validation";
 import { validatePattern, validateVersionBoundaries } from "./occurrences";
 import { databaseNow } from "./clock";
 import { dateValue, dateKey, localDate, addDays } from "./dates";
+import { isScheduleConflict } from "./schedule-conflicts";
 
 export const patternInclude = { slots: { orderBy: [{ weekday: "asc" as const }, { startMinute: "asc" as const }] }, employmentPeriod: { select: { startDate: true, endDate: true } } };
 export async function timeEvent(tx: Database, employeeId: string, actorUserId: string, now: Date, type: string, title: string, sourceType: string, sourceId: string) {
@@ -20,7 +21,7 @@ export async function publishSchedule(identity: Identity | null, input: unknown)
   const value = validated(publishSchema, input);
   validatePattern(value.slots); if (value.restoreSlots) validatePattern(value.restoreSlots);
   try { return await authorizedMutation(identity, (actor, tx) => publishScheduleInTransaction(actor, tx, value)); } catch (error) {
-    if (typeof error === "object" && error && "code" in error && ["P2002", "P2004"].includes(String(error.code))) throw new AppError(409, "SCHEDULE_CONFLICT", "The schedule conflicts with an existing assignment. Reload and check its dates and periods.");
+    if (isScheduleConflict(error)) throw new AppError(409, "SCHEDULE_CONFLICT", "An existing assignment covers these dates. Use ‘Replace or cancel future dates’ for that assignment. No changes were saved.");
     throw error;
   }
 }

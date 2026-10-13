@@ -13,6 +13,7 @@ import { patternInclude } from "./schedules";
 import { occurrence, checkinEligibility, type SchedulePattern, type Occurrence } from "./occurrences";
 import { scheduleReadSchema, historyReadSchema } from "./validation";
 import { addDays, dateKey, dateValue, localDate, dayStart, weekday } from "./dates";
+import { resolveRange } from "@/lib/utils/date-range";
 const attendanceSelect = { id: true, scheduleSlotId: true, employmentPeriodId: true, workDate: true, scheduledStartAt: true, scheduledEndAt: true, checkinAt: true, checkoutAt: true,
   timezoneSnapshot: true, earlyCheckinMinutesSnapshot: true, earliestCheckinAt: true, source: true, revision: true, voidedAt: true, createdAt: true };
 type SessionRecord = Prisma.AttendanceSessionGetPayload<{ select: typeof attendanceSelect }>;
@@ -87,11 +88,13 @@ export async function attendanceHistory(identity: Identity | null, inputEmployee
     if (own && employeeId !== actor.employeeId) throw new AppError(404, "NOT_FOUND", "Attendance history not found.");
     const employee = await db.employee.findUnique({ where: { id: employeeId }, select: { id: true, legalName: true, employeeNumber: true } });
     if (!employee) throw new AppError(404, "NOT_FOUND", "Attendance history not found.");
-    const settings=await db.organizationSettings.findUniqueOrThrow({where:{id:1},select:{timezone:true}}),now=await databaseNow(db),from=value.from??localDate(now,settings.timezone),until=value.until??addDays(from,1);
-    if(until<=from || until>addDays(from,31))throw new AppError(400,"DATE_RANGE","Choose up to 31 organization-local dates; end is exclusive.");
+    const settings=await db.organizationSettings.findUniqueOrThrow({where:{id:1},select:{timezone:true,weekStartDay:true}}),now=await databaseNow(db);
+    const r=resolveRange(Object.fromEntries(Object.entries(value).filter((e):e is [string,string]=>e[0]!=="page"&&typeof e[1]==="string")),localDate(now,settings.timezone),{weekStartDay:settings.weekStartDay,maxDays:31});
+    if(r.error || r.mode==="all")throw new AppError(400,"DATE_RANGE",r.error??"Choose up to 31 organization-local dates.");
+    const {from,until}=r;
     const where={employeeId,checkinAt:{lt:dayStart(until,settings.timezone)},OR:[{checkoutAt:null},{checkoutAt:{gt:dayStart(from,settings.timezone)}}]};
     const [total,records]=await Promise.all([db.attendanceSession.count({where}),db.attendanceSession.findMany({where,skip:(value.page-1)*25,take:25,orderBy:[{checkinAt:"desc"},{id:"desc"}],select:attendanceSelect})]);
-    return {employee,timezone:settings.timezone,now,from,until,operational:actor.accountStatus!=="ON_HOLD",records:records.map(s=>sessionView(s,now)),total,page:value.page,pages:Math.max(1,Math.ceil(total/25))};
+    return {employee,timezone:settings.timezone,now,from,until,to:r.to,label:r.label,mode:r.mode,operational:actor.accountStatus!=="ON_HOLD",records:records.map(s=>sessionView(s,now)),total,page:value.page,pages:Math.max(1,Math.ceil(total/25))};
   });
 }
 export async function ownAttendance(identity: Identity | null, query: unknown = {}) {

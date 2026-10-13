@@ -7,6 +7,7 @@ import { organizationSummary } from "@/features/settings/service";
 import type { ActionState } from "@/types/auth";
 import { updateStandardHours } from "./work-policy";
 import { payCommand } from "./commands";
+import { paymentInstant } from "./payment-time";
 import { requestCommissionRecheck,resolveCommissionRecheck } from "./rechecks";
 import { submitPreorder,withdrawPreorder } from "./commissions";
 export async function payAction(_:ActionState,form:FormData):Promise<ActionState> {
@@ -17,7 +18,7 @@ export async function payAction(_:ActionState,form:FormData):Promise<ActionState
    case "weeklyCorrection":data={originalStatementId:text("originalStatementId"),targetPeriodId:text("targetPeriodId"),amount:text("amount"),reason:text("reason"),operationKey:text("operationKey")};break;
    case "weeklyCalculate":data={employeeId:text("employeeId"),week:text("week"),...(revision?{revision}: {})};break;
    case "weeklyTransition":data={id:text("id"),revision,status:text("status")};break;
-   case "payment":data={periodId:text("periodId"),paidAt:new Date(text("paidAt")).toISOString(),reference:text("reference"),note:text("note")};break;
+   case "payment":data={periodId:text("periodId"),paidAt:paymentInstant(text("paidAt"),(await organizationSummary(identity)).timezone),reference:text("reference"),note:text("note")};break;
    case "rate":data={employeeId:text("employeeId"),employmentPeriodId:text("employmentPeriodId"),effectiveFrom:text("effectiveFrom"),effectiveUntil:text("effectiveUntil"),payType:text("payType"),baseAmount:text("baseAmount"),overtimeHourlyRate:text("overtimeHourlyRate"),overtimeHourlyEquivalent:text("overtimeHourlyEquivalent"),overtimeMultiplier:text("overtimeMultiplier"),reason:text("reason"),...(text("baseRateId")?{baseRateId:text("baseRateId"),revision}:{})};break;
    case "period":data={month:text("month")};break;
    case "calculate":data={periodId:text("periodId"),revision};break;

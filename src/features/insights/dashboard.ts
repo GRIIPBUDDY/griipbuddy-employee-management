@@ -30,7 +30,7 @@ export async function managementDashboard(identity:Identity|null) {
     tx.employeeDocument.count({where:{deletedAt:null,expiresOn:{gt:dateValue(today),lte:dateValue(addDays(today,30))}}}),
     tx.performanceReview.count({where:{publishedAt:null}})
    ]);
-   const dayQuery=`from=${today}&until=${addDays(today,1)}`;
+   const dayQuery="range=today";
    const cards=[
     {label:"Total employees",value:Number(employeeCounts[0].total),href:"/manage/employees"},
     {label:"Active employees",value:Number(employeeCounts[0].active),href:"/manage/employees?status=ACTIVE"},
