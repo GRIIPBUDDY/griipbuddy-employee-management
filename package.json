@@ -15,10 +15,12 @@
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:http": "tsx scripts/http-smoke.ts",
+    "test:e2e": "playwright test",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:bootstrap": "tsx scripts/bootstrap.ts",
     "db:runtime-grants": "tsx scripts/runtime-grants.ts",
+    "qa:local": "node --conditions=react-server --import tsx scripts/local-qa.ts",
     "notifications:due": "node --conditions=react-server --import tsx scripts/notifications-due.ts"
   },
   "dependencies": {
@@ -49,6 +51,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
     "@types/node": "24.19.1",
     "@types/pg": "8.23.1",
     "@types/react": "19.3.0",

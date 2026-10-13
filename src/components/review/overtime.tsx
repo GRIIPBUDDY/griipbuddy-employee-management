@@ -1,21 +1,29 @@
-import { Card,CardHeader,CardTitle,CardContent,CardDescription } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { ActionForm } from "@/components/ui/action-form";
+import { Dialog } from "@/components/ui/dialog";
+import { Metric } from "@/components/ui/stat";
+import { Alert } from "@/components/ui/alert";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { reviewAction } from "@/features/review/actions";
 import type { overtimeData } from "@/features/review/overtime";
-import { displayInstant,durationLabel } from "@/features/time/dates";
-import { Hidden,Quantity,DecisionForm } from "./forms";
-import { StatusBadge } from "@/components/ui/status-badge";
-export function WeeklyOvertime({data,own}:{data:Awaited<ReturnType<typeof overtimeData>>;own:boolean}) {
- const {current,row}=data;
- return <Card><CardHeader><CardTitle>{data.employee.legalName} · weekly overtime</CardTitle><CardDescription>{current.week} → {current.weekEnd} (exclusive) · {current.timezone} · policy {current.policyVersion}</CardDescription></CardHeader><CardContent className="space-y-5">
-  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Quantity label="Threshold" seconds={current.thresholdSeconds}/><Quantity label="Completed actual time" seconds={current.actualSeconds}/><Quantity label="Potential overtime" seconds={current.potentialSeconds}/><Quantity label="Active approved overtime" seconds={data.activeApprovedSeconds}/></div>
-  <div className="flex flex-wrap items-center gap-3"><StatusBadge status={row?.status??"UNREVIEWED"}/><span className="text-sm text-muted-foreground">Scheduled: {durationLabel(current.scheduledSeconds)}</span></div><p className="text-sm text-muted-foreground">Leave and unworked holidays do not count as actual work. Positive overtime requires review after the week ends.</p>
-  {current.blockers.length>0 && <p role="status" className="text-sm text-amber-800">Resolve: {current.blockers.join("; ")}</p>}
-  {row && <div className="rounded-xl bg-slate-50 p-4 text-sm leading-6"><p>Last calculated input: {durationLabel(row.actualSecondsSnapshot)} actual · {durationLabel(row.potentialSecondsSnapshot)} potential. Retained approval: {durationLabel(row.approvedSeconds)}{row.status==="STALE"?" (inactive until reviewed again)":""}.</p>{row.reviewedAt&&<p className="text-muted-foreground">Reviewed {displayInstant(row.reviewedAt,current.timezone)}</p>}{row.reviewComment&&<p className="mt-2">Review reason: {row.reviewComment}</p>}{row.status==="REJECTED"&&<p className="mt-2 font-medium text-rose-800">Rejected · no overtime pay is included. Your original attendance records remain intact.</p>}</div>}
-  {!own && current.ended && <ActionForm action={reviewAction} submitLabel="Calculate / refresh weekly review"><Hidden values={{kind:"calculate",employeeId:data.employee.id,week:current.week}}/></ActionForm>}
-  {!own && row?.status==="PENDING" && data.canDecide && <DecisionForm key={`${row.id}:${row.revision}`} kind="overtimeDecision" id={row.id} revision={row.revision} amount={current.potentialSeconds} max={current.potentialSeconds}/>}
-  {!own && data.decisionBlockReason && <p className="text-sm text-amber-900">{data.decisionBlockReason}</p>}
-  <p className="text-sm text-muted-foreground">Partial approval uses the last approved seconds of the chronological overtime candidate intervals. Salary calculations use this approved allocation and effective compensation terms.</p>
-  {data.allocation.length>0 && <div className="space-y-2 text-sm"><strong>Active approved allocation</strong>{data.allocation.map(v=><p key={v.start}>{displayInstant(new Date(v.start*1000),current.timezone)} – {displayInstant(new Date(v.end*1000),current.timezone)} · {durationLabel(v.end-v.start)}</p>)}</div>}
- </CardContent></Card>;
+import { addDays, displayInstant } from "@/features/time/dates";
+import { rangeLabel } from "@/lib/utils/date-range";
+import { hm } from "@/components/time/attendance";
+import { Hidden, DecisionForm } from "./forms";
+export function WeeklyOvertime({ data, own }: { data: Awaited<ReturnType<typeof overtimeData>>; own: boolean }) {
+  const { current, row } = data, status = row?.status ?? (current.ended ? "UNREVIEWED" : "IN_PROGRESS");
+  return <Card><CardHeader actions={<StatusBadge status={status} label={status === "IN_PROGRESS" ? "Week in progress" : undefined} />}>
+    <CardTitle>{own ? "Week of " : `${data.employee.legalName} · week of `}{rangeLabel(current.week, addDays(current.weekEnd, -1))}</CardTitle><CardDescription>{current.timezone} · overtime policy version {current.policyVersion}. Potential overtime needs an explicit decision before it is payable.</CardDescription></CardHeader>
+    <CardContent className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Metric label="Scheduled" value={hm(current.scheduledSeconds)} /><Metric label="Completed actual" value={hm(current.actualSeconds)} /><Metric label="Weekly threshold" value={hm(current.thresholdSeconds)} /><Metric label="Potential overtime" value={hm(current.potentialSeconds)} hint="Not payable until approved" /><Metric label="Approved (payable)" value={hm(data.activeApprovedSeconds)} className={data.activeApprovedSeconds ? "border-[#abefc6] bg-success-soft" : undefined} /></div>
+      {current.blockers.length > 0 && <Alert tone="warning" role="status" title="Resolve before review">{current.blockers.join(" · ")}</Alert>}
+      {row?.status === "REJECTED" && <Alert tone="danger" title="Overtime rejected">No overtime pay is included for this week. Original attendance records remain intact.{row.reviewComment ? ` Reason: ${row.reviewComment}` : ""}</Alert>}
+      {row && row.status !== "REJECTED" && <div className="rounded-lg border bg-subtle px-4 py-3 text-sm leading-6"><p>Last calculation: {hm(row.actualSecondsSnapshot)} actual · {hm(row.potentialSecondsSnapshot)} potential{row.status === "APPROVED" || row.status === "STALE" ? ` · approved ${hm(row.approvedSeconds)}${row.status === "STALE" ? " (inactive until reviewed again)" : ""}` : ""}.</p>{row.reviewedAt && <p className="text-muted-foreground">Reviewed {displayInstant(row.reviewedAt, current.timezone)}{row.reviewComment ? ` — “${row.reviewComment}”` : ""}</p>}</div>}
+      {!own && (current.ended || (row?.status === "PENDING" && data.canDecide)) && <div className="flex flex-wrap items-center gap-2">
+        {current.ended && <ActionForm compact action={reviewAction} submitVariant="outline" submitLabel={row ? "Recalculate week" : "Calculate overtime"}><Hidden values={{ kind: "calculate", employeeId: data.employee.id, week: current.week }} /></ActionForm>}
+        {row?.status === "PENDING" && data.canDecide && <Dialog variant="default" trigger="Review overtime" title="Overtime decision" description={`${data.employee.legalName} · ${hm(current.potentialSeconds)} potential overtime. Partial approval keeps the latest chronological portion.`}><DecisionForm key={`${row.id}:${row.revision}`} kind="overtimeDecision" id={row.id} revision={row.revision} amount={current.potentialSeconds} max={current.potentialSeconds} /></Dialog>}
+      </div>}
+      {!own && data.decisionBlockReason && <Alert tone="neutral">{data.decisionBlockReason}</Alert>}
+      {data.allocation.length > 0 && <div className="text-sm"><p className="font-medium">Approved allocation</p><ul className="mt-1.5 space-y-1 text-muted-foreground">{data.allocation.map(v => <li key={v.start} className="tabular-nums">{displayInstant(new Date(v.start * 1000), current.timezone)} – {displayInstant(new Date(v.end * 1000), current.timezone)} · {hm(v.end - v.start)}</li>)}</ul></div>}
+    </CardContent></Card>;
 }

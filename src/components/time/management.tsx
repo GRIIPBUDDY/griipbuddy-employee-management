@@ -1,31 +1,61 @@
-import Link from "next/link";
+import { CalendarPlus, CalendarCog } from "lucide-react";
 import { ScheduleActionForm } from "./schedule-action-form";
-import { Field, SelectField } from "@/components/ui/field";
+import { Field, SelectField, CheckboxField } from "@/components/ui/field";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
+import { TableContainer } from "@/components/ui/table";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Alert } from "@/components/ui/alert";
 import { ScheduleFields } from "./schedule-fields";
-
 import { addDays, dateKey, minuteLabel } from "@/features/time/dates";
 import type { employeeSchedule } from "@/features/time/data";
 import type { employeeProfile } from "@/features/people/data";
 type Data = Awaited<ReturnType<typeof employeeSchedule>>;
-export function ScheduleManagement({ data, profile }: { data: Data; profile: Awaited<ReturnType<typeof employeeProfile>> }) {
-  const tomorrow = addDays(data.today, 1), weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-  return <><Card><CardHeader><CardTitle>Create schedule assignment</CardTitle><CardDescription>Dates apply to the scheduled period’s start date. The effective end is exclusive. Use a future replacement below when an assignment already covers these dates.</CardDescription></CardHeader><CardContent><p className="mb-5 rounded-xl bg-slate-50 p-4 text-sm leading-6">Use this form only for a date range with no existing assignment. To change assigned dates, use <a href="#assignment-history" className="font-semibold text-primary underline">the explicit future replacement below</a>.</p><ScheduleActionForm key={`create:${profile.id}`} from={data.today} timezone={data.timezone} submitLabel="Publish schedule" headerFields={<><input type="hidden" name="employeeId" value={profile.id}/><SelectField label="Employment period" name="employmentPeriodId" required>{profile.employmentPeriods.map(p=><option key={p.id} value={p.id}>{dateKey(p.startDate)} – {p.endDate?dateKey(p.endDate):"Ongoing"} · {p.departmentLabel}</option>)}</SelectField></>}>
-    <Field label="Schedule label (optional)" name="label" maxLength={100} /><ScheduleFields /><HolidayWork /><Field label="Reason for assignment" name="reason" required maxLength={500} />
-  </ScheduleActionForm></CardContent></Card>
-  <Card id="assignment-history"><CardHeader><CardTitle>Assignment history and future replacements</CardTitle><CardDescription>Published periods are retained. Replace from tomorrow or later, or remove all periods to publish a rest pattern. Temporary changes require explicit confirmation of the pattern to restore.</CardDescription></CardHeader><CardContent className="space-y-4">
-    {data.versions.map(v => {
-      const from = dateKey(v.effectiveFrom), until = v.effectiveUntil ? dateKey(v.effectiveUntil) : "";
-      const canReplace = !v.supersededAt && (!until || until > tomorrow);
-      const slots = v.slots.map(({ weekday, startMinute, endMinute, endDayOffset }) => ({ weekday, startMinute, endMinute, endDayOffset }));
-      return <article key={v.id} className="space-y-3 rounded-lg border p-4"><h3 className="font-medium">{v.label ?? "Weekly pattern"} · {from} – {until || "Ongoing"}{v.supersededAt ? " · Superseded" : ""}</h3><p className="text-sm text-muted-foreground">{v.changeReason}</p><ul className="space-y-1 text-sm">{v.slots.map(s => <li key={s.id}>{weekdays[s.weekday - 1]} · {minuteLabel(s.startMinute)}–{minuteLabel(s.endMinute)}{s.endDayOffset ? " (+1 day)" : ""}</li>)}{v.slots.length === 0 && <li>Rest pattern · no scheduled work</li>}</ul>
-      {canReplace && <details className="pt-2"><summary className="cursor-pointer text-sm font-medium text-blue-700">Replace or cancel future dates</summary><div className="pt-4"><ScheduleActionForm key={`${v.id}:${v.revision}`} from={from > tomorrow ? from : tomorrow} until={until} baseFrom={from} baseUntil={until} timezone={data.timezone} submitLabel="Publish future replacement" headerFields={<><input type="hidden" name="employeeId" value={profile.id}/><input type="hidden" name="employmentPeriodId" value={v.employmentPeriodId}/><input type="hidden" name="baseScheduleId" value={v.id}/><input type="hidden" name="baseRevision" value={v.revision}/><input type="hidden" name="restoreSlots" value={JSON.stringify(slots)}/></>}>
-        <Field label="Schedule label (optional)" name="label" defaultValue={v.label ?? ""} maxLength={100} /><ScheduleFields initial={slots} /><HolidayWork />
-        <label className="flex items-start gap-2 text-sm"><input type="checkbox" name="restorePrevious" className="mt-1" />Restore this displayed weekly pattern after the temporary effective end. Required when replacing only part of this assignment.</label><Field label="Reason for replacement or cancellation" name="reason" required maxLength={500} />
-      </ScheduleActionForm></div></details>}</article>;
-    })}{data.versions.length === 0 && <p className="text-sm text-muted-foreground">No schedule assignments yet.</p>}{data.versions.length === 100 && <p className="text-sm text-muted-foreground">Showing the latest 100 assignment versions.</p>}
-  </CardContent></Card></>;
+type Version = Data["versions"][number];
+const short = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+export function versionState(v: Version, today: string) {
+  const from = dateKey(v.effectiveFrom), until = v.effectiveUntil ? dateKey(v.effectiveUntil) : null;
+  return v.supersededAt ? "SUPERSEDED" : until && until <= today ? "ENDED" : from > today ? "SCHEDULED" : "ACTIVE";
 }
-export function EmployeeTimeLinks({ employeeId }: { employeeId: string }) { return <nav aria-label="Employee workspace" className="flex flex-wrap gap-5 text-sm text-blue-700"><Link href={`/manage/employees/${employeeId}`}>Employee profile</Link><Link href={`/manage/employees/${employeeId}/schedule`}>Schedule</Link><Link href={`/manage/employees/${employeeId}/attendance`}>Attendance</Link></nav>; }
-
-function HolidayWork() { return <label className="flex items-start gap-2 text-sm"><input name="holidayWorkRequired" type="checkbox" className="mt-1"/>Require work on overlapping company holidays. Use a bounded temporary assignment with an explicit reason.</label>; }
+export function patternSummary(slots: Version["slots"]) {
+  if (!slots.length) return "Rest pattern · no work";
+  const minutes = slots.reduce((sum, s) => sum + s.endMinute + s.endDayOffset * 1440 - s.startMinute, 0), days = [...new Set(slots.map(s => s.weekday))].sort();
+  const times = [...new Set(slots.map(s => `${minuteLabel(s.startMinute)}–${minuteLabel(s.endMinute)}${s.endDayOffset ? "+1" : ""}`))];
+  return `${days.map(d => short[d - 1]).join(", ")} · ${times.slice(0, 3).join(", ")}${times.length > 3 ? "…" : ""} · ${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ""}/week`;
+}
+function HolidayWork() { return <CheckboxField name="holidayWorkRequired" label="Require work on company holidays" description="Only for a bounded temporary assignment with an explicit reason." />; }
+function replacementForm(v: Version, data: Data, profileId: string) {
+  const from = dateKey(v.effectiveFrom), until = v.effectiveUntil ? dateKey(v.effectiveUntil) : "", tomorrow = addDays(data.today, 1);
+  const slots = v.slots.map(({ weekday, startMinute, endMinute, endDayOffset }) => ({ weekday, startMinute, endMinute, endDayOffset }));
+  return <ScheduleActionForm key={`${v.id}:${v.revision}`} from={from > tomorrow ? from : tomorrow} until={until} baseFrom={from} baseUntil={until} timezone={data.timezone} submitLabel="Publish schedule change" headerFields={<><input type="hidden" name="employeeId" value={profileId} /><input type="hidden" name="employmentPeriodId" value={v.employmentPeriodId} /><input type="hidden" name="baseScheduleId" value={v.id} /><input type="hidden" name="baseRevision" value={v.revision} /><input type="hidden" name="restoreSlots" value={JSON.stringify(slots)} /></>}>
+    <Field label="Schedule label" name="label" defaultValue={v.label ?? ""} maxLength={100} hint="Optional, e.g. “Split shift”." /><ScheduleFields initial={slots} />
+    <CheckboxField name="restorePrevious" label="Restore the current pattern after a bounded change" description="Required when the change has an end date before the current assignment ends. One-day overrides restore it automatically." />
+    <HolidayWork /><Field label="Reason for the change" name="reason" required maxLength={500} />
+  </ScheduleActionForm>;
+}
+export function ScheduleManagement({ data, profile }: { data: Data; profile: Awaited<ReturnType<typeof employeeProfile>> }) {
+  const tomorrow = addDays(data.today, 1);
+  const replaceable = (v: Version) => !v.supersededAt && (!v.effectiveUntil || dateKey(v.effectiveUntil) > tomorrow);
+  const current = data.versions.find(v => versionState(v, data.today) === "ACTIVE") ?? data.versions.filter(v => versionState(v, data.today) === "SCHEDULED").sort((a, b) => a.effectiveFrom.getTime() - b.effectiveFrom.getTime())[0];
+  const createForm = <ScheduleActionForm key={`create:${profile.id}`} from={data.today} timezone={data.timezone} submitLabel="Publish schedule" headerFields={<><input type="hidden" name="employeeId" value={profile.id} /><SelectField label="Employment record" name="employmentPeriodId" required>{profile.employmentPeriods.map(p => <option key={p.id} value={p.id}>{dateKey(p.startDate)} – {p.endDate ? dateKey(p.endDate) : "Ongoing"} · {p.departmentLabel}</option>)}</SelectField></>}>
+    {current && <Alert tone="info">This employee already has a schedule. Use this only for dates with no assignment (for example after a bounded assignment ends). To change the current schedule, use “Change schedule”.</Alert>}
+    <Field label="Schedule label" name="label" maxLength={100} hint="Optional, e.g. “Split shift”." /><ScheduleFields /><HolidayWork /><Field label="Reason" name="reason" required maxLength={500} placeholder="e.g. Weekly work hours" />
+  </ScheduleActionForm>;
+  const createDialog = (primary: boolean) => <Dialog key="create" sheet variant={primary ? "default" : "outline"} trigger={<><CalendarPlus size={16} aria-hidden="true" />{primary ? "Publish schedule" : "New separate assignment"}</>} title="Publish a recurring schedule" description="Weekly work periods that repeat from the start date. Multiple periods per day are supported.">{createForm}</Dialog>;
+  return <Card id="assignment-history">
+    <CardHeader actions={<>{current && replaceable(current) ? <><Dialog key="change" sheet variant="default" trigger={<><CalendarCog size={16} aria-hidden="true" />Change schedule</>} title="Change the schedule" description={`Current: ${current.label ?? "Weekly pattern"} · ${patternSummary(current.slots)}. Changes start tomorrow or later; earlier dates and recorded attendance are kept.`}>{replacementForm(current, data, profile.id)}</Dialog>{createDialog(false)}</> : createDialog(true)}</>}>
+      <CardTitle>Schedule assignments</CardTitle><CardDescription>Published assignments are never overwritten. Changes create a new version from a chosen date.</CardDescription>
+    </CardHeader>
+    <CardContent>{data.versions.length === 0 ? <EmptyState title="No schedule yet" description="Publish a recurring weekly schedule. The default pattern is 4 hours work, 4 hours break and 4 hours work." /> :
+      <TableContainer label="Schedule assignments" flush className="rounded-lg border"><table className="data-table min-w-[760px]"><thead><tr><th>Assignment</th><th>Effective dates</th><th>Weekly pattern</th><th>Status</th><th className="text-right">Actions</th></tr></thead><tbody>{data.versions.map(v => {
+        const from = dateKey(v.effectiveFrom), until = v.effectiveUntil ? dateKey(v.effectiveUntil) : null, state = versionState(v, data.today);
+        return <tr key={v.id}><td><p className="font-medium">{v.label ?? "Weekly pattern"}</p><p className="mt-0.5 max-w-64 truncate text-xs text-muted-foreground" title={v.changeReason}>{v.changeReason}</p></td>
+          <td className="whitespace-nowrap tabular-nums">{from} → {until ? addDays(until, -1) : "ongoing"}</td><td className="text-[13px]">{patternSummary(v.slots)}</td>
+          <td><StatusBadge status={state} tone={state === "ACTIVE" ? "success" : state === "SCHEDULED" ? "info" : "neutral"} /></td>
+          <td className="text-right">{replaceable(v) ? <Dialog sheet triggerSize="sm" variant="ghost" trigger="Change dates" title="Change or cancel future dates" description={`${v.label ?? "Weekly pattern"} · ${from} → ${until ? addDays(until, -1) : "ongoing"}. Remove all periods to cancel work for the chosen dates.`}>{replacementForm(v, data, profile.id)}</Dialog> : <span className="text-xs text-muted-foreground">Read only</span>}</td></tr>;
+      })}</tbody></table></TableContainer>}
+      {data.versions.length === 100 && <p className="mt-3 text-sm text-muted-foreground">Showing the latest 100 assignment versions.</p>}
+    </CardContent>
+  </Card>;
+}

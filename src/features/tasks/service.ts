@@ -9,14 +9,17 @@ import { validated,uuidSchema,dateSchema } from "@/lib/validation/schemas";
 import { AppError } from "@/lib/utils/errors";
 import type { Identity } from "@/types/auth";
 import { databaseNow } from "@/features/time/clock";
-import { dateValue,localDate,addDays } from "@/features/time/dates";
+import { dateValue,localDate,dayStart } from "@/features/time/dates";
+import { resolveRange } from "@/lib/utils/date-range";
 import { notify } from "@/features/review/notifications";
 import { timeEvent } from "@/features/time/schedules";
 const fields=z.object({title:z.string().trim().min(1).max(150),description:z.string().trim().max(5000),assignedDate:dateSchema,dueDate:dateSchema.nullable().default(null),priority:z.enum(["LOW","NORMAL","HIGH"]).default("NORMAL")}).refine(v=>!v.dueDate||v.dueDate>=v.assignedDate,"Due date must follow assignment date.");
 const assignSchema=fields.safeExtend({employeeIds:z.array(uuidSchema).min(1).max(100).refine(v=>new Set(v).size===v.length,"Choose each employee once."),operationKey:uuidSchema}).strict();
 const progressSchema=z.object({id:uuidSchema,revision:z.number().int().positive(),status:z.enum(["IN_PROGRESS","COMPLETED"]),note:z.string().trim().max(2000).default("")}).strict();
 const editSchema=fields.safeExtend({id:uuidSchema,revision:z.number().int().positive(),reason:z.string().trim().min(1).max(500)}).strict();
-const filterSchema=z.object({from:dateSchema.optional(),until:dateSchema.optional(),dateBy:z.enum(["ASSIGNED","DUE","COMPLETED"]).default("ASSIGNED"),employeeId:uuidSchema.optional(),status:z.enum(["ASSIGNED","IN_PROGRESS","COMPLETED"]).optional(),page:z.coerce.number().int().min(1).max(10000).default(1)}).strict();
+const optionalText=(schema:z.ZodType<string>)=>z.union([schema,z.literal("")]).optional().transform(v=>v||undefined);
+// Without date parameters the list covers all dates, so older open or overdue tasks are never hidden.
+const filterSchema=z.object({from:optionalText(dateSchema),until:optionalText(dateSchema),to:optionalText(dateSchema),date:optionalText(dateSchema),range:z.enum(["today","date","week","month","custom","all",""]).optional().transform(v=>v||undefined),dateBy:z.enum(["ASSIGNED","DUE","COMPLETED"]).default("ASSIGNED"),employeeId:optionalText(uuidSchema),status:z.enum(["ASSIGNED","IN_PROGRESS","COMPLETED","OPEN","OVERDUE",""]).optional().transform(v=>v||undefined),search:z.string().trim().max(150).default(""),page:z.coerce.number().int().min(1).max(10000).default(1)}).strict();
 export async function assignTasks(identity:Identity|null,input:unknown){
  await securityBoundary(identity,async a=>assertRole(a,["ADMIN","HR_MANAGER"]));const v=validated(assignSchema,input);
  return authorizedMutation(identity,async(a,tx)=>{
@@ -54,11 +57,18 @@ export async function editTask(identity:Identity|null,input:unknown){
  });
 }
 export async function taskData(identity:Identity|null,input:unknown={},own=false){return securityBoundary(identity,async a=>{
- if(!own)assertRole(a,["ADMIN","HR_MANAGER"]);const v=validated(filterSchema,input),settings=await db.organizationSettings.findUniqueOrThrow({where:{id:1}}),today=localDate(await databaseNow(db),settings.timezone),from=v.from??today,until=v.until??addDays(from,1);if(until<=from)throw new AppError(400,"RANGE","End date must follow start (exclusive).");
+ if(!own)assertRole(a,["ADMIN","HR_MANAGER"]);const v=validated(filterSchema,input),settings=await db.organizationSettings.findUniqueOrThrow({where:{id:1}}),today=localDate(await databaseNow(db),settings.timezone);
+ const r=resolveRange(Object.fromEntries(Object.entries({from:v.from,until:v.until,to:v.to,date:v.date,range:v.range}).filter((e):e is [string,string]=>!!e[1])),today,{weekStartDay:settings.weekStartDay,defaultMode:"all",allowAll:true});
+ if(r.error)throw new AppError(400,"RANGE",r.error);
  if(own && v.employeeId && v.employeeId!==a.employeeId)throw new AppError(404,"NOT_FOUND","Task not found.");
  const employeeId=own?a.employeeId??"00000000-0000-0000-0000-000000000000":v.employeeId;
- const span=v.dateBy==="COMPLETED"?{gte:new Date((await import("@/features/time/dates")).dayStart(from,settings.timezone)),lt:(await import("@/features/time/dates")).dayStart(until,settings.timezone)}:{gte:dateValue(from),lt:dateValue(until)};
- const where={...(employeeId?{employeeId}:{}),...(v.status?{status:v.status}:{}),[v.dateBy==="DUE"?"dueDate":v.dateBy==="COMPLETED"?"completedAt":"assignedDate"]:span};
+ // Without dates, "due"/"completed" still means tasks that have that date.
+ const span=r.mode==="all"?v.dateBy==="ASSIGNED"?undefined:{not:null}:v.dateBy==="COMPLETED"?{gte:dayStart(r.from,settings.timezone),lt:dayStart(r.until,settings.timezone)}:{gte:dateValue(r.from),lt:dateValue(r.until)};
+ const status=v.status==="OPEN"?{status:{in:["ASSIGNED","IN_PROGRESS"]}}:v.status==="OVERDUE"?{status:{in:["ASSIGNED","IN_PROGRESS"]},dueDate:{lt:dateValue(today)}}:v.status?{status:v.status}:{};
+ const matching=v.search&&!own?(await db.employee.findMany({where:{OR:[{legalName:{contains:v.search,mode:"insensitive"}},{employeeNumber:{contains:v.search,mode:"insensitive"}}]},select:{id:true},take:200})).map(e=>e.id):[];
+ const search=v.search?{OR:[{title:{contains:v.search,mode:"insensitive" as const}},{description:{contains:v.search,mode:"insensitive" as const}},...(matching.length?[{employeeId:{in:matching}}]:[])]}:{};
+ const where={AND:[{...(employeeId?{employeeId}:{}),...status,...search},...(span?[{[v.dateBy==="DUE"?"dueDate":v.dateBy==="COMPLETED"?"completedAt":"assignedDate"]:span}]:[])]};
  const [records,total]=await Promise.all([db.taskAssignment.findMany({where,orderBy:[{assignedDate:"desc"},{id:"desc"}],skip:(v.page-1)*25,take:25}),db.taskAssignment.count({where})]);
- return {records:await Promise.all(records.map(async r=>({...r,employee:own?null:await db.employee.findUniqueOrThrow({where:{id:r.employeeId},select:{legalName:true}})}))),total,page:v.page,pages:Math.max(1,Math.ceil(total/25)),from,until,dateBy:v.dateBy,timezone:settings.timezone,operational:a.accountStatus!=="ON_HOLD"};
+ const names=own?[]:await db.employee.findMany({where:{id:{in:[...new Set(records.map(r=>r.employeeId))]}},select:{id:true,legalName:true,employeeNumber:true}});
+ return {records:records.map(r=>({...r,employee:own?null:names.find(e=>e.id===r.employeeId)??null})),total,page:v.page,pages:Math.max(1,Math.ceil(total/25)),from:r.from,until:r.until,to:r.to,mode:r.mode,label:r.label,today,dateBy:v.dateBy,status:v.status,search:v.search,timezone:settings.timezone,operational:a.accountStatus!=="ON_HOLD"};
 });}

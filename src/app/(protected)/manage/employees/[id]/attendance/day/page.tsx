@@ -1,14 +1,34 @@
 import Link from "next/link";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getIdentity } from "@/lib/auth/request";
 import { pageResult } from "@/lib/auth/page-result";
 import { attendanceDay } from "@/features/review/data";
-import { displayInstant,durationLabel,dateKey } from "@/features/time/dates";
-import { CorrectionForm,Quantity } from "@/components/review/forms";
-import { Card,CardHeader,CardTitle,CardContent } from "@/components/ui/card";
-export default async function Page({params,searchParams}:{params:Promise<{id:string}>;searchParams:Promise<Record<string,string|string[]|undefined>>}) {
- const {id}=await params,q=await searchParams,data=await pageResult(attendanceDay(await getIdentity(),id,q.date));
- return <><h1 className="text-3xl font-semibold">{data.employee.legalName} · {data.from}</h1><Link className="text-blue-700" href={`/manage/attendance?employeeId=${id}&from=${data.from}&until=${data.until}`}>Attendance review</Link>
- <div className="grid gap-3 sm:grid-cols-3"><Quantity label="Scheduled time" seconds={data.scheduledSeconds}/><Quantity label="Required time" seconds={data.requiredSeconds}/><Quantity label="Completed actual time" seconds={data.actualSeconds}/></div>
- {data.sessions.map(s=><Card key={s.id}><CardHeader><CardTitle>{s.voidedAt?"Voided":s.checkoutAt?"Completed":"Incomplete / currently working"}</CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><p>{s.source} · revision {s.revision}</p><p>Work date: {dateKey(s.workDate)}. Original scheduled context: {s.scheduledStartAt?displayInstant(s.scheduledStartAt,data.timezone):"Unscheduled"} – {s.scheduledEndAt?displayInstant(s.scheduledEndAt,data.timezone):"—"}</p><p>Actual: {displayInstant(s.checkinAt,data.timezone)} – {s.checkoutAt?displayInstant(s.checkoutAt,data.timezone):"Missing checkout"}</p>{s.checkoutAt && <p>Full session elapsed: {durationLabel((s.checkoutAt.getTime()-s.checkinAt.getTime())/1000)} (daily totals clip at local midnight).</p>}<Link className="text-blue-700" href={`/manage/corrections?employeeId=${id}&sessionId=${s.id}&workDate=${dateKey(s.workDate)}`}>Propose a reviewed correction</Link></CardContent></Card>)}{!data.sessions.length && <p>No sessions recorded on this day. Ended required periods need review; leave, holidays and rest days excuse attendance.</p>}
- <Card><CardHeader><CardTitle>Related correction requests</CardTitle></CardHeader><CardContent>{data.corrections.map(c=><p key={c.id} className="mb-3 text-sm"><Link className="text-blue-700" href={`/manage/corrections?id=${c.id}`}>{c.type} · {c.status}</Link> · {c.reason} {c.reviewComment}</p>)}{!data.corrections.length && <p>No correction requests.</p>}</CardContent></Card><CorrectionForm timezone={data.timezone} employeeId={id} workDate={data.from}/></>;
+import { addDays, displayInstant, dateKey } from "@/features/time/dates";
+import { CorrectionForm } from "@/components/review/forms";
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
+import { Metric } from "@/components/ui/stat";
+import { TableContainer } from "@/components/ui/table";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { buttonVariants } from "@/components/ui/button";
+import { rangeLabel } from "@/lib/utils/date-range";
+import { hm } from "@/components/time/attendance";
+export default async function Page({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { id } = await params, q = await searchParams, data = await pageResult(attendanceDay(await getIdentity(), id, q.date));
+  const nav = buttonVariants({ variant: "outline", size: "sm" }), base = `/manage/employees/${id}/attendance/day?date=`;
+  return <>
+    <PageHeader breadcrumbs={[{ label: "Attendance", href: `/manage/attendance?employeeId=${id}&range=date&date=${data.from}` }, { label: data.employee.legalName, href: `/manage/employees/${id}/attendance` }, { label: data.from }]} title={rangeLabel(data.from, data.from)} description={`${data.employee.legalName} · ${data.employee.employeeNumber} · ${data.timezone}`}
+      actions={<><Link className={nav} href={`${base}${addDays(data.from, -1)}`}><ChevronLeft size={15} aria-hidden="true" />Previous day</Link><Link className={nav} href={`${base}${addDays(data.from, 1)}`}>Next day<ChevronRight size={15} aria-hidden="true" /></Link></>} />
+    <div className="grid gap-3 sm:grid-cols-3"><Metric label="Scheduled" value={hm(data.scheduledSeconds)} /><Metric label="Required" value={hm(data.requiredSeconds)} hint="After leave and holidays" /><Metric label="Completed actual" value={hm(data.actualSeconds)} hint="Daily totals clip at local midnight" /></div>
+    <Card><CardHeader><CardTitle>Sessions touching this date</CardTitle><CardDescription>Official timestamps change only through a reviewed correction.</CardDescription></CardHeader><CardContent>{data.sessions.length ? <TableContainer label="Sessions" flush className="rounded-lg border"><table className="data-table min-w-[760px]"><thead><tr><th>Status</th><th>Scheduled context</th><th>Actual</th><th className="num">Full duration</th><th>Source</th><th className="text-right">Action</th></tr></thead><tbody>{data.sessions.map(s => <tr key={s.id}>
+      <td><StatusBadge status={s.voidedAt ? "VOIDED" : s.checkoutAt ? "COMPLETED" : "INCOMPLETE"} label={s.voidedAt ? "Voided" : s.checkoutAt ? "Completed" : "Open / incomplete"} /></td>
+      <td className="text-[13px]">{s.scheduledStartAt ? `${displayInstant(s.scheduledStartAt, data.timezone)} – ${s.scheduledEndAt ? displayInstant(s.scheduledEndAt, data.timezone) : "—"}` : "Unscheduled"}<span className="block text-xs text-muted-foreground">Work date {dateKey(s.workDate)}</span></td>
+      <td className="text-[13px]">{displayInstant(s.checkinAt, data.timezone)} – {s.checkoutAt ? displayInstant(s.checkoutAt, data.timezone) : <span className="text-warning">missing checkout</span>}</td>
+      <td className="num">{s.checkoutAt ? hm((s.checkoutAt.getTime() - s.checkinAt.getTime()) / 1000) : "—"}</td><td className="text-xs text-muted-foreground">{s.source.toLowerCase()} · rev {s.revision}</td>
+      <td className="text-right"><Link className="link text-[13px]" href={`/manage/corrections?employeeId=${id}&sessionId=${s.id}&workDate=${dateKey(s.workDate)}`}>Propose correction</Link></td></tr>)}</tbody></table></TableContainer>
+      : <EmptyState title="No sessions on this date" description="Ended required periods without attendance appear as absences in review. Leave, holidays and rest days excuse attendance." />}</CardContent></Card>
+    <Card><CardHeader><CardTitle>Related correction requests</CardTitle></CardHeader><CardContent>{data.corrections.length ? <ul className="divide-y rounded-lg border">{data.corrections.map(c => <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"><span><Link className="link" href={`/manage/corrections?id=${c.id}`}>{c.type.toLowerCase()} request</Link> · {c.reason}{c.reviewComment ? ` · ${c.reviewComment}` : ""}</span><StatusBadge status={c.status} /></li>)}</ul> : <p className="text-sm text-muted-foreground">No correction requests for this date.</p>}</CardContent></Card>
+    <CorrectionForm timezone={data.timezone} employeeId={id} workDate={data.from} />
+  </>;
 }

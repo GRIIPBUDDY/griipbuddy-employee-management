@@ -1,4 +1,6 @@
 import { ManagementPicker } from "@/components/people/management-picker";
-export default async function WorkRecords({ searchParams }: { searchParams: Promise<{ search?: string }> }) {
-  return <><h1 className="text-3xl font-semibold">Employee work records</h1><ManagementPicker section="timeline" search={(await searchParams).search ?? ""} /></>;
+import { PageHeader } from "@/components/ui/page-header";
+export default async function WorkRecords({ searchParams }: { searchParams: Promise<{ search?: string; page?: string }> }) {
+  const q = await searchParams;
+  return <><PageHeader title="Work records" description="Achievements, training, onboarding notes and other timeline events. Choose an employee to view or add records." /><ManagementPicker section="timeline" search={q.search ?? ""} page={q.page} path="/manage/work-records" /></>;
 }

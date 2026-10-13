@@ -1,24 +1,28 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Field, SelectField } from "@/components/ui/field";
+import { LoaderCircle, Upload } from "lucide-react";
+import { Field, SelectField, CheckboxField, FieldGrid } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
 export function DocumentUpload({ employeeId }: { employeeId: string }) {
-  const [pending, setPending] = useState(false), [error, setError] = useState(""), [success, setSuccess] = useState("");
+  const [pending, setPending] = useState(false), [error, setError] = useState(""), busy = useRef(false);
   const router = useRouter();
   return <form className="space-y-4" onSubmit={async event => {
-    event.preventDefault(); const form = event.currentTarget;
-    setPending(true); setError(""); setSuccess("");
+    event.preventDefault(); if (busy.current) return; busy.current = true;
+    const form = event.currentTarget; setPending(true); setError("");
     try {
       const response = await fetch(`/api/employees/${employeeId}/documents`, { method: "POST", body: new FormData(form) });
-      const result = await response.json();
-      if (!response.ok) { setError(result.error ?? "Upload failed."); return; }
-      setSuccess("Document uploaded."); form.reset(); router.refresh();
-    } catch { setError("Upload failed. Please retry."); } finally { setPending(false); }
-  }}><div className="grid gap-4 sm:grid-cols-2"><Field label="Display name" name="displayName" required maxLength={150} /><SelectField label="Document category" name="type" defaultValue="OTHER">{["PASSPORT", "NATIONAL_ID", "EMPLOYMENT_CONTRACT", "EDUCATION", "VISA_WORK_PERMIT", "BANK", "OTHER"].map(type => <option key={type} value={type}>{type.replaceAll("_", " ")}</option>)}</SelectField><Field label="Issue date (optional)" name="issuedOn" type="date" /><Field label="Expiry date (optional)" name="expiresOn" type="date" /></div>
-    <Field label="File — PDF, JPEG or PNG; maximum 10 MiB" name="file" type="file" accept=".pdf,.jpg,.jpeg,.png" required />
-    <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="employeeVisible" />Release for employee viewing</label>
-    <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="profilePhoto" />Use as profile photo (released JPEG/PNG in Other)</label>
-    {error && <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}{success && <p role="status" className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">{success}</p>}<Button type="submit" disabled={pending}>{pending ? "Uploading…" : "Upload document"}</Button>
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) { setError(result.error ?? "Upload failed. Check the file and try again."); return; }
+      window.dispatchEvent(new CustomEvent("workspace:saved", { detail: "Document uploaded and stored privately." }));
+      form.reset(); form.dispatchEvent(new CustomEvent("action:success", { bubbles: true })); router.refresh();
+    } catch { setError("Upload failed. Please retry."); } finally { setPending(false); busy.current = false; }
+  }}><fieldset disabled={pending} className="space-y-4"><FieldGrid><Field label="Display name" name="displayName" required maxLength={150} /><SelectField label="Category" name="type" defaultValue="OTHER">{["PASSPORT", "NATIONAL_ID", "EMPLOYMENT_CONTRACT", "EDUCATION", "VISA_WORK_PERMIT", "BANK", "OTHER"].map(type => <option key={type} value={type}>{type.replaceAll("_", " ").toLowerCase().replace(/^./, c => c.toUpperCase())}</option>)}</SelectField><Field label="Issue date" name="issuedOn" type="date" /><Field label="Expiry date" name="expiresOn" type="date" hint="Expiry alerts are sent 30 days before." /></FieldGrid>
+    <Field label="File" name="file" type="file" accept=".pdf,.jpg,.jpeg,.png" required hint="PDF, JPEG or PNG, up to 10 MiB. Files are stored outside public directories." />
+    <CheckboxField name="employeeVisible" label="Release to the employee" description="The employee can view and download this document from their portal." />
+    <CheckboxField name="profilePhoto" label="Use as profile photo" description="Requires a released JPEG or PNG in the Other category." /></fieldset>
+    {error && <Alert tone="danger" role="alert">{error}</Alert>}
+    <Button type="submit" disabled={pending}>{pending ? <LoaderCircle size={16} className="animate-spin" aria-hidden="true" /> : <Upload size={16} aria-hidden="true" />}{pending ? "Uploading…" : "Upload document"}</Button>
   </form>;
 }

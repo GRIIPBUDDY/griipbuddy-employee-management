@@ -3,7 +3,7 @@ import { dateSchema,uuidSchema } from "@/lib/validation/schemas";
 const optional=<T extends z.ZodType>(schema:T)=>z.union([schema,z.literal("")]).optional().transform(v=>v===""?undefined:v);
 export const reportKinds=["employees","attendance","overtime","leave","salary","commissions","documents","tasks"] as const;
 export const reportKind=z.enum(reportKinds);
-export const reportQuery=z.object({from:optional(dateSchema),until:optional(dateSchema),employeeId:optional(uuidSchema),departmentId:optional(uuidSchema),status:optional(z.string().max(30)),dateBy:z.enum(["ASSIGNED","DUE","COMPLETED"]).optional(),page:z.coerce.number().int().min(1).max(10000).default(1)}).strict();
+export const reportQuery=z.object({from:optional(dateSchema),until:optional(dateSchema),to:optional(dateSchema),date:optional(dateSchema),range:optional(z.enum(["today","date","week","month","custom","all"])),days:optional(z.enum(["ALL","ACTIVE"])),employeeId:optional(uuidSchema),departmentId:optional(uuidSchema),status:optional(z.string().max(30)),dateBy:z.enum(["ASSIGNED","DUE","COMPLETED"]).optional(),page:z.coerce.number().int().min(1).max(10000).default(1)}).strict();
 export const auditQuery=z.object({from:optional(dateSchema),until:optional(dateSchema),actorId:optional(uuidSchema),employeeId:optional(uuidSchema),action:optional(z.string().trim().max(80)),entity:optional(z.string().trim().max(80)),recordId:optional(z.string().trim().max(100)),search:z.string().trim().max(150).default(""),page:z.coerce.number().int().min(1).max(10000).default(1)}).strict();
 export type ReportKind=z.infer<typeof reportKind>;
 export type ReportQuery=z.infer<typeof reportQuery>;

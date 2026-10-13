@@ -1,11 +1,15 @@
-import Link from "next/link";
 import { pageActor } from "@/lib/auth/request";
 import { ActionForm } from "@/components/ui/action-form";
-import { Field,SelectField } from "@/components/ui/field";
+import { Field, SelectField } from "@/components/ui/field";
+import { TabNav } from "@/components/ui/tabs";
 import { Hidden } from "@/components/review/forms";
 import { payAction } from "@/features/pay/actions";
-export { ActionForm,Field,SelectField,Hidden,payAction };
-export const label=(s:string)=>s==="REVIEWED"?"Under Review":s[0]+s.slice(1).toLowerCase();
-export async function PayNav(){const actor=await pageActor();return <nav className="flex flex-wrap gap-5 text-sm text-blue-700"><Link href="/manage/salary">Salary periods</Link><Link href="/manage/adjustments">Adjustments</Link>{(actor.role==="ADMIN"||actor.canManageCommissions)&&<Link href="/manage/commissions">Pre-orders & commissions</Link>}</nav>;}
-export function Pager({page,hasNext}:{page:number;hasNext:boolean}) {return <nav className="flex gap-5 text-sm"><span>Page {page}</span>{page>1 && <Link href={`?page=${page-1}`}>Previous</Link>}{hasNext && <Link href={`?page=${page+1}`}>Next</Link>}</nav>;}
-export function PayDecision({kind,id,revision}:{kind:"adjustmentDecision"|"preorderDecision";id:string;revision:number}) {return <ActionForm action={payAction} submitLabel="Save review decision" confirmation={{title:"Record review decision?",description:"Confirm the decision and reason before updating this financial record.",label:"Confirm decision"}}><Hidden values={{kind,id,revision}}/><SelectField name="decision" label="Decision"><option value="APPROVED">Approve</option><option value="REJECTED">Reject</option></SelectField><Field name="comment" label="Review comment" maxLength={500}/></ActionForm>;}
+export { ActionForm, Field, SelectField, Hidden, payAction };
+export const label = (s: string) => s === "REVIEWED" ? "Under review" : s[0] + s.slice(1).toLowerCase().replaceAll("_", " ");
+export async function PayNav() {
+  const actor = await pageActor();
+  return <TabNav label="Compensation" items={[{ label: "Weekly earnings", href: "/manage/weekly-earnings" }, { label: "Salary & payments", href: "/manage/salary" }, { label: "Adjustments", href: "/manage/adjustments" }, ...(actor.role === "ADMIN" || actor.canManageCommissions ? [{ label: "Pre-order commissions", href: "/manage/commissions" }] : [])]} />;
+}
+export function PayDecision({ kind, id, revision }: { kind: "adjustmentDecision" | "preorderDecision"; id: string; revision: number }) {
+  return <ActionForm action={payAction} submitLabel="Save decision" confirmation={{ title: "Record this financial decision?", description: "Approved items become eligible for earnings calculations. Rejected items are kept in history and excluded.", label: "Confirm decision" }}><Hidden values={{ kind, id, revision }} /><SelectField name="decision" label="Decision"><option value="APPROVED">Approve</option><option value="REJECTED">Reject</option></SelectField><Field name="comment" label="Review comment" maxLength={500} /></ActionForm>;
+}

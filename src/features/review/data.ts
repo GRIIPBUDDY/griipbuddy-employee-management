@@ -10,22 +10,26 @@ import { addDays,localDate,dateValue,dayStart } from "@/features/time/dates";
 import { filterSchema,ownSummarySchema } from "./validation";
 import { localWeek } from "./calculation";
 import { summary,weekCalculation } from "./summary";
-function range(from:string|undefined,until:string|undefined,today:string) {
- const start=from??today,end=until??addDays(start,1);
- if(end<=start || end>addDays(start,31))throw new AppError(400,"DATE_RANGE","Select a positive date range of at most 31 days. End date is exclusive.");return {from:start,until:end};
+import { resolveRange } from "@/lib/utils/date-range";
+type RangeInput={from?:string;until?:string;to?:string;date?:string;range?:string};
+// Inclusive organization-local dates resolved once; services keep exclusive `until` bounds internally.
+export function range(input:RangeInput,today:string,weekStartDay=1) {
+ const r=resolveRange(Object.fromEntries(Object.entries(input).filter((e):e is [string,string]=>typeof e[1]==="string")),today,{weekStartDay,maxDays:31});
+ if(r.error || r.mode==="all")throw new AppError(400,"DATE_RANGE",r.error??"Select a date range of at most 31 days.");
+ return {from:r.from,until:r.until,to:r.to,label:r.label,mode:r.mode};
 }
 export async function ownSummary(identity:Identity|null,query:unknown={}) {
  return securityBoundary(identity,async actor=>{
   const v=validated(ownSummarySchema,query);if(!actor.employeeId)return null;
   const employeeId=actor.employeeId;
-  return db.$transaction(async tx=>{const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(tx),r=range(v.from,v.until,localDate(now,settings.timezone));return summary(tx,employeeId,r.from,r.until,now);},{isolationLevel:"RepeatableRead"});
+  return db.$transaction(async tx=>{const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(tx),r=range(v,localDate(now,settings.timezone),settings.weekStartDay);return {...await summary(tx,employeeId,r.from,r.until,now),to:r.to,label:r.label,mode:r.mode};},{isolationLevel:"RepeatableRead"});
  });
 }
 export async function attendanceManagement(identity:Identity|null,query:unknown={}) {
  return securityBoundary(identity,async actor=>{
   assertRole(actor,["ADMIN","HR_MANAGER"]);const v=validated(filterSchema,query);
   return db.$transaction(async tx=>{
-   const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(tx),r=range(v.from,v.until,localDate(now,settings.timezone));
+   const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(tx),r=range(v,localDate(now,settings.timezone),settings.weekStartDay);
    const employees=await tx.employee.findMany({where:{...(v.employeeId?{id:v.employeeId}:{}),...(v.departmentId?{employmentPeriods:{some:{departmentId:v.departmentId,startDate:{lt:dateValue(r.until)},OR:[{endDate:null},{endDate:{gt:dateValue(r.from)}}]}}}:{})},orderBy:[{legalName:"asc"},{id:"asc"}],skip:(v.page-1)*10,take:11,select:{id:true,legalName:true,employeeNumber:true}});
    const records=[];
    for(const employee of employees.slice(0,10)){
@@ -38,10 +42,12 @@ export async function attendanceManagement(identity:Identity|null,query:unknown=
     for(const day of totals.days){const overtime=reviews.get(localWeek(day.date,settings.weekStartDay))!;
      const statuses=[...(day.lateSeconds?["LATE"]:[]),...(day.incompleteCount?["INCOMPLETE"]:[]),...(day.missingEndedSeconds?["MISSING"]:[]),...(day.earlySeconds?["EARLY"]:[]),...(day.pendingCorrections?["PENDING_CORRECTION"]:[])];
      if(v.status && !statuses.includes(v.status) || v.overtimeStatus && overtime.status!==v.overtimeStatus)continue;
+     // ACTIVE omits dates with no scheduled occurrence, attendance, open session, absence or pending correction.
+     if(v.days==="ACTIVE" && !day.scheduledSeconds && !day.actualSeconds && !day.openCount && !day.absenceCount && !day.pendingCorrections)continue;
      records.push({employee,...day,pendingCorrections:day.pendingCorrections,overtime,issues:totals.issues,leaveConflictSeconds:totals.leaveConflictSeconds});
     }
    }
-   return {records,from:r.from,until:r.until,timezone:settings.timezone,page:v.page,hasNext:employees.length>10,
+   return {records,from:r.from,until:r.until,to:r.to,label:r.label,mode:r.mode,timezone:settings.timezone,page:v.page,hasNext:employees.length>10,
     employees:await tx.employee.findMany({orderBy:{legalName:"asc"},take:200,select:{id:true,legalName:true,employeeNumber:true}}),departments:await tx.department.findMany({where:{isActive:true},orderBy:{name:"asc"},select:{id:true,name:true}})};
   },{isolationLevel:"RepeatableRead",timeout:15000});
  });

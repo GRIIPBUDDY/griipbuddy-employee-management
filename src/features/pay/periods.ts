@@ -1,4 +1,5 @@
 import "server-only";
+import { summarizeBlockers } from "./blockers";
 import { Temporal } from "@js-temporal/polyfill";
 import { db } from "@/lib/db/client";
 import { audit,type Database } from "@/lib/db/audit";
@@ -75,7 +76,11 @@ export async function transitionPeriod(identity:Identity|null,input:unknown) {
   if(actor.role==="HR_MANAGER" && rows.some(r=>r.employeeId===actor.employeeId))throw new AppError(403,"SELF_REVIEW","Another authorized staff member must review your own monthly pay.");
   if(rows.length!==facts.ids.length || rows.some((r,i)=>r.employeeId!==facts.ids[i] || r.inputRevision!==p.inputRevision))throw new AppError(409,"ROSTER_INCOMPLETE","Recalculate every employee on the current monthly roster.");
   const blockers=[...facts.inputs.flatMap(i=>i.blockers),...(facts.unassigned?["Assign or explicitly defer unresolved pre-orders"]:[])];
-  if(blockers.length)throw new AppError(409,"UNRESOLVED_PAY",`Resolve sources before closeout: ${[...new Set(blockers)].join("; ")}`);
+  if(blockers.length){
+   // Name the affected employees and condense per-date messages so the reviewer can act on them.
+   const named=await Promise.all(facts.inputs.filter(i=>i.blockers.length).map(async i=>`${(await tx.employee.findUnique({where:{id:i.employeeId},select:{legalName:true}}))?.legalName??"Employee"}: ${summarizeBlockers(i.blockers).join("; ")}`));
+   throw new AppError(409,"UNRESOLVED_PAY",`Resolve sources before closeout. ${[...named,...(facts.unassigned?["Assign or explicitly defer unresolved pre-orders"]:[])].join(" · ")}`);
+  }
   if(rows.some(r=>decimal(r.finalAmount).isNegative()))throw new AppError(409,"NEGATIVE_SALARY","Reduce or defer approved deductions; final salary cannot be negative.");
   if(rows.some(r=>{const snap=r.calculationSnapshot as {blockers?:unknown[]};return !Array.isArray(snap.blockers) || snap.blockers.length>0;}))throw new AppError(409,"RECALCULATE","The stored estimate had blockers. Calculate again with resolved sources.");
   for(const adjustment of await tx.salaryAdjustment.findMany({where:{salaryPeriodId:p.id,status:"APPROVED",correctsSalaryCalculationId:{not:null},includedSalaryCalculationId:null}}))await verifyReconciliation(tx,adjustment,now);

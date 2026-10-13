@@ -2,37 +2,60 @@
 @theme inline {
   --color-background: var(--background); --color-foreground: var(--foreground);
   --color-card: var(--card); --color-card-foreground: var(--foreground);
-  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
+  --color-surface: var(--surface); --color-subtle: var(--subtle);
+  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground); --color-primary-soft: var(--primary-soft); --color-primary-strong: var(--primary-strong);
   --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent); --color-accent-foreground: var(--foreground);
-  --color-border: var(--border); --color-input: var(--border); --color-ring: var(--primary);
+  --color-border: var(--border); --color-border-strong: var(--border-strong); --color-input: var(--border-strong); --color-ring: var(--primary);
+  --color-success: var(--success); --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning); --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger); --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info); --color-info-soft: var(--info-soft);
+  --font-sans: var(--font-system);
+  --shadow-card: 0 1px 2px rgb(16 24 40 / .04), 0 1px 3px rgb(16 24 40 / .03);
+  --shadow-pop: 0 12px 32px -8px rgb(16 24 40 / .18), 0 4px 8px -4px rgb(16 24 40 / .06);
 }
-:root { --background: #f4f6fa; --foreground: #19243a; --card: #fff; --primary: #2458d3; --primary-foreground: #fff; --muted: #f1f5f9; --muted-foreground: #52627a; --accent: #f1f5f9; --border: #dde4ed; }
-@layer base { * { border-color: var(--border); } body { background: var(--background); color: var(--foreground); font-family: Arial, Helvetica, sans-serif; } }
-
+/* Restrained, professional palette. Status colors always pair with text labels. */
+:root {
+  --font-system: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --background: #f5f6f8; --surface: #ffffff; --subtle: #f9fafb; --card: #ffffff;
+  --foreground: #101828; --muted: #f2f4f7; --muted-foreground: #526077; --accent: #f2f4f7;
+  --border: #e4e7ec; --border-strong: #d0d5dd;
+  --primary: #3651d4; --primary-strong: #2a40ad; --primary-soft: #eef1fd; --primary-foreground: #ffffff;
+  --success: #087443; --success-soft: #ecfdf3; --warning: #a15c07; --warning-soft: #fffaeb;
+  --danger: #b42318; --danger-soft: #fef3f2; --info: #175cd3; --info-soft: #eff8ff;
+}
 @layer base {
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; line-height: 1.5; }
-  button, summary, select { cursor: pointer; }
-  button:disabled { cursor: not-allowed; }
-  :focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+  * { border-color: var(--border); }
+  html { -webkit-text-size-adjust: 100%; }
+  body { background: var(--background); color: var(--foreground); font-family: var(--font-system); -webkit-font-smoothing: antialiased; line-height: 1.5; font-size: 0.9375rem; }
+  h1, h2, h3 { letter-spacing: -0.015em; }
+  button, summary, select, [role="tab"] { cursor: pointer; }
+  button:disabled, select:disabled { cursor: not-allowed; }
+  :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
   input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); width: 1rem; height: 1rem; flex-shrink: 0; }
   input[type="hidden"] { display: none; }
-  dialog { max-height: calc(100dvh - 2rem); overflow-y: auto; }
+  dialog { max-height: calc(100dvh - 2rem); overflow-y: auto; color: var(--foreground); }
+  dialog::backdrop { background: rgb(16 24 40 / .45); }
+  ::selection { background: #d6ddfb; }
+  .tabular, td, dd { font-variant-numeric: tabular-nums; }
+  summary { list-style: none; }
+  summary::-webkit-details-marker { display: none; }
 }
 @layer components {
-  .workspace-main > h1, .workspace-main > div > h1 { font-size: clamp(1.5rem, 2.4vw, 2rem); letter-spacing: -.035em; line-height: 1.25; }
-  .workspace-main table { border-collapse: collapse; width: 100%; }
-  .workspace-main thead { background: #f8fafc; }
-  .workspace-main th { font-size: .7rem; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: #52627a; padding: .9rem 1rem; white-space: nowrap; }
-  .workspace-main td { padding: 1rem; vertical-align: middle; }
-  .workspace-main tbody tr { border-bottom: 1px solid #edf0f5; transition: background-color .15s; }
-  .workspace-main tbody tr:hover { background: #f8fafc; }
-  .workspace-main tbody tr:last-child { border-bottom: none; }
-  .workspace-main details > summary { font-size: .875rem; font-weight: 600; border-radius: .5rem; padding: .75rem; }
-  .workspace-main details[open] > summary { margin-bottom: 1rem; background: #f1f5f9; }
-  .workspace-main [data-slot="card"] { box-shadow: 0 2px 8px #17203305; }
-  .workspace-main > nav a { padding: .5rem .75rem; border-radius: .5rem; }
-  .workspace-main > nav a:hover { background: #e9eef8; }
+  /* Data tables: consistent density; wrappers own horizontal overflow so pages never scroll sideways. */
+  .data-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .875rem; text-align: left; }
+  .data-table thead th { position: sticky; top: 0; background: var(--subtle); color: var(--muted-foreground); font-size: .75rem; font-weight: 600; letter-spacing: .02em; padding: .625rem 1rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .data-table tbody td { padding: .75rem 1rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .data-table tbody tr:last-child td { border-bottom: 0; }
+  .data-table tbody tr { transition: background-color .12s; }
+  .data-table tbody tr:hover { background: #fafbfc; }
+  .data-table .num { text-align: right; white-space: nowrap; }
+  .link { color: var(--primary); font-weight: 500; text-underline-offset: 3px; }
+  .link:hover { text-decoration: underline; }
+  .disclosure > summary { display: flex; align-items: center; gap: .5rem; font-weight: 600; font-size: .875rem; }
+  .disclosure > summary .chevron { transition: transform .15s; }
+  .disclosure[open] > summary .chevron { transform: rotate(90deg); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }

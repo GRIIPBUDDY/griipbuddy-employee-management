@@ -17,5 +17,5 @@ export const publishSchema = z.object({
 export const checkinSchema = z.object({ slotId: uuidSchema, workDate: dateSchema, operationKey: uuidSchema }).strict();
 export const checkoutSchema = z.object({ sessionId: uuidSchema, operationKey: uuidSchema }).strict();
 export const scheduleReadSchema = z.object({ week: dateSchema.optional() }).strict();
-export const historyReadSchema = z.object({from:dateSchema.optional(),until:dateSchema.optional(), page: z.coerce.number().int().min(1).max(10000).default(1) }).strict();
+export const historyReadSchema = z.object({from:dateSchema.optional(),until:dateSchema.optional(),to:dateSchema.optional(),date:dateSchema.optional(),range:z.enum(["today","date","week","month","custom"]).optional(), page: z.coerce.number().int().min(1).max(10000).default(1) }).strict();
 export type SlotInput = z.infer<typeof slotSchema>;

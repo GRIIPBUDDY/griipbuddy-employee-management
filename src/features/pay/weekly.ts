@@ -73,7 +73,7 @@ export async function transitionWeekly(identity:Identity|null,input:unknown){
  return authorizedMutation(identity,async(a,tx)=>{
   const old=await tx.weeklyEarningStatement.findUnique({where:{id:v.id}});if(!old)throw new AppError(404,"NOT_FOUND","Weekly statement not found.");adjustmentReviewer(a,old.employeeId,(old.calculationSnapshot as {commissionRelated:boolean}).commissionRelated);
   if(old.status===v.status && old.revision===v.revision+1)return old.id;
-  if(old.revision!==v.revision || old.status!==(v.status==="REVIEWED"?"CALCULATED":"REVIEWED"))throw new AppError(409,"STALE","Follow calculated → reviewed → finalized using the current revision.");
+  if(old.revision!==v.revision || old.status!==(v.status==="REVIEWED"?"CALCULATED":"REVIEWED"))throw new AppError(409,"STALE","This statement changed since the page loaded. Refresh and review the latest calculation, then try again (calculated → reviewed → finalized).");
   const now=await databaseNow(tx),captured=await weeklyCapture(tx,a,old.employeeId,dateKey(old.weekStartDate),now);
   if(captured.fingerprint!==old.sourceFingerprint || captured.snapshot.blockers.length)throw new AppError(409,"WEEKLY_UNRESOLVED","Sources changed or are unresolved. Recalculate the week before review.");if(decimal(old.finalAmount).isNegative())throw new AppError(409,"NEGATIVE_PAY","Resolve deductions before finalization.");
   await tx.weeklyEarningStatement.update({where:{id:old.id},data:{status:v.status,...(v.status==="REVIEWED"?{reviewedBy:a.userId}:{finalizedBy:a.userId,finalizedAt:now}),revision:{increment:1}}});

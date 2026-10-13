@@ -1,4 +1,11 @@
 import Link from "next/link";
 import { controlAction } from "@/features/accounts/control-actions";
 import { ActionForm } from "@/components/ui/action-form";
-export default async function Verify({searchParams}:{searchParams:Promise<{token?:string}>}){const {token}=await searchParams;return <main className="mx-auto mt-16 max-w-lg space-y-5 rounded-lg border p-6"><h1 className="text-xl font-semibold">Verify login email</h1><p>Confirm ownership of this address. This changes your login email and revokes existing sessions.</p>{token && /^[a-f0-9]{64}$/.test(token)?<ActionForm action={controlAction} submitLabel="Confirm email change"><input type="hidden" name="kind" value="confirmEmail"/><input type="hidden" name="token" value={token}/></ActionForm>:<p>Invalid verification link.</p>}<Link href="/login" className="text-blue-700">Sign in</Link></main>;}
+import { Alert } from "@/components/ui/alert";
+import { AuthFrame } from "@/components/layout/auth-frame";
+export default async function Verify({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
+  const { token } = await searchParams;
+  return <AuthFrame title="Verify your login email" description="Confirm that you own this address. Your login email changes and all existing sessions are signed out." footer={<Link href="/login" className="link">Back to sign in</Link>}>
+    {token && /^[a-f0-9]{64}$/.test(token) ? <ActionForm action={controlAction} submitLabel="Confirm email change"><input type="hidden" name="kind" value="confirmEmail" /><input type="hidden" name="token" value={token} /></ActionForm> : <Alert tone="danger" role="alert">This verification link is invalid or incomplete. Request a new one from Account settings.</Alert>}
+  </AuthFrame>;
+}

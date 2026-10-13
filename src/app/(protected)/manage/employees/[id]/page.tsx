@@ -3,13 +3,23 @@ import { getIdentity, pageActor } from "@/lib/auth/request";
 import { pageResult } from "@/lib/auth/page-result";
 import { employeeProfile } from "@/features/people/data";
 import { ProfileDetails } from "@/components/profile";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import Link from "next/link";
-import { EmployeeTimeLinks } from "@/components/time/management";
-import { EmployeeWorkspace } from "@/components/people/workspace";
+import { EmployeeHeader } from "@/components/people/employee-header";
+import { DocumentsPanel, TimelinePanel, workspaceData } from "@/components/people/workspace";
+import { PageHeader } from "@/components/ui/page-header";
+import { Tabs } from "@/components/ui/tabs";
 export default async function Employee({ params }: { params: Promise<{ id: string }> }) {
-  const identity = await getIdentity(), actor = await pageActor();
+  const identity = await getIdentity(), actor = await pageActor(), staff = actor.role !== "EMPLOYEE";
+  // Employees may open only their own ID here (scoped by the service); they get the personal view without staff controls.
   const profile = await pageResult(employeeProfile(identity, (await params).id));
-  const staff = actor.role !== "EMPLOYEE";
-  return <><div className="flex flex-wrap items-center justify-between gap-4"><div className="flex items-center gap-4">{profile.photoDocumentId && <img src={`/api/employees/${profile.id}/documents/${profile.photoDocumentId}?view=1`} alt={`${profile.legalName} profile`} width={64} height={64} className="h-16 w-16 rounded-full object-cover" />}<h1 className="text-3xl font-semibold tracking-tight">{profile.legalName}</h1></div>{staff && <Link className="font-medium text-blue-700" href={`/manage/employees/${profile.id}/edit`}>Edit employee</Link>}</div>{staff && <><EmployeeTimeLinks employeeId={profile.id} /><Link className="text-sm font-medium text-blue-700" href={`/manage/employees/${profile.id}/compensation`}>Compensation & history</Link></>}<Card><CardHeader><CardTitle>Employee details</CardTitle></CardHeader><CardContent><ProfileDetails profile={profile} /></CardContent></Card>{staff && <EmployeeControls identity={identity} employeeId={profile.id}/>}<EmployeeWorkspace identity={identity} employeeId={profile.id} staff={staff} /></>;
+  const { documents, records } = await workspaceData(identity, profile.id, staff);
+  if (!staff) return <><PageHeader title={profile.legalName} description="Your employee profile." /><ProfileDetails profile={profile} /><DocumentsPanel documents={documents} employeeId={profile.id} staff={false} /><TimelinePanel records={records} employeeId={profile.id} staff={false} /></>;
+  return <>
+    <EmployeeHeader employee={profile} />
+    <Tabs label="Profile sections" items={[
+      { id: "overview", label: "Details", content: <ProfileDetails profile={profile} /> },
+      { id: "account", label: "Account & access", content: <EmployeeControls identity={identity} employeeId={profile.id} /> },
+      { id: "documents", label: "Documents", count: documents.length, content: <DocumentsPanel documents={documents} employeeId={profile.id} staff /> },
+      { id: "timeline", label: "Timeline", count: records.length, content: <TimelinePanel records={records} employeeId={profile.id} staff /> },
+    ]} />
+  </>;
 }

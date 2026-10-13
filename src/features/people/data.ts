@@ -58,7 +58,7 @@ export async function searchEmployees(identity: Identity | null, input: unknown 
     ] };
     const [records, total, departments] = await Promise.all([
       db.employee.findMany({ where, skip: (value.page - 1) * 25, take: 25, orderBy: { employeeNumber: "asc" }, select: {
-        id: true, legalName: true, employeeNumber: true, photoDocumentId: true, user: { select: { isActive: true } },
+        id: true, legalName: true, employeeNumber: true, photoDocumentId: true, user: { select: { isActive: true, accountStatus: true, email: true } },
         employmentPeriods: { orderBy: { startDate: "desc" }, select: { startDate: true, endDate: true, departmentLabel: true, positionLabel: true, department: { select: { name: true } }, position: { select: { name: true } } } },
       } }), db.employee.count({ where }), db.department.findMany({ select: { id: true, name: true, isActive: true }, orderBy: { name: "asc" } }),
     ]);
@@ -67,7 +67,7 @@ export async function searchEmployees(identity: Identity | null, input: unknown 
       const upcoming = record.employmentPeriods.some(p => p.startDate > today);
       return { id: record.id, legalName: record.legalName, employeeNumber: record.employeeNumber, photoDocumentId: record.photoDocumentId,
         departmentLabel: (period ?? record.employmentPeriods[0])?.department?.name ?? (period ?? record.employmentPeriods[0])?.departmentLabel ?? "—", positionLabel: (period ?? record.employmentPeriods[0])?.position?.name ?? (period ?? record.employmentPeriods[0])?.positionLabel ?? "—",
-        joinDate: record.employmentPeriods.at(-1)?.startDate ?? null, status: !record.user.isActive ? "INACTIVE" : period ? "ACTIVE" : upcoming ? "UPCOMING" : "INACTIVE" };
+        joinDate: record.employmentPeriods.at(-1)?.startDate ?? null, accountStatus: record.user.accountStatus, email: record.user.email, status: !record.user.isActive ? "INACTIVE" : period ? "ACTIVE" : upcoming ? "UPCOMING" : "INACTIVE" };
     });
     return { employees, total, page: value.page, pages: Math.max(1, Math.ceil(total / 25)), departments };
   });

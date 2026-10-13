@@ -1,2 +1,20 @@
-import {getIdentity} from "@/lib/auth/request";import {pageResult} from "@/lib/auth/page-result";import {absenceData} from "@/features/review/absence";import {Absence} from "@/components/review/absence";import {OperationsNav,PageLinks} from "@/components/people-operations/records";import {Field,SelectField} from "@/components/ui/field";
-export default async function Page({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){const raw=await searchParams,q=Object.fromEntries(Object.entries(raw).filter((v):v is [string,string]=>typeof v[1]==='string'&&v[1]!=='')),{page,...filters}=q,identity=await getIdentity(),data=await pageResult(absenceData(identity,false,Number(page??1),undefined,filters)); return <><h1 className="text-3xl font-semibold">My leave & holidays</h1><OperationsNav staff={false}/><form method="get" className="grid gap-4 rounded-lg border bg-white p-5 sm:grid-cols-2"><SelectField label="Request status" name="status" defaultValue={q.status??''}><option value="">All statuses</option>{['PENDING','APPROVED','REJECTED','WITHDRAWN','CANCELLED'].map(s=><option key={s}>{s}</option>)}</SelectField><SelectField label="Leave category" name="category" defaultValue={q.category??''}><option value="">All categories</option>{['ANNUAL','SICK','PERSONAL','EMERGENCY','UNPAID','OTHER'].map(s=><option key={s}>{s}</option>)}</SelectField><Field label="From date" name="from" type="date" defaultValue={q.from}/><Field label="Until date (exclusive)" name="until" type="date" defaultValue={q.until}/><button className="rounded-md bg-blue-700 p-2 text-white">Apply leave filters</button></form><Absence data={data} staff={false}/><PageLinks page={data.page} hasNext={data.hasNext} query={q}/></>;}
+import { getIdentity } from "@/lib/auth/request";
+import { pageResult } from "@/lib/auth/page-result";
+import { absenceData } from "@/features/review/absence";
+import { Absence, RequestLeaveButton, leaveCategories } from "@/components/review/absence";
+import { SelectField } from "@/components/ui/field";
+import { PageHeader } from "@/components/ui/page-header";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { Pagination } from "@/components/ui/pagination";
+import { strings, type Query } from "@/lib/utils/query";
+export default async function Page({ searchParams }: { searchParams: Promise<Query> }) {
+  const q = strings(await searchParams), { page, ...rest } = q;
+  const filters = Object.fromEntries(Object.entries(rest).filter(([key]) => ["status", "category", "id", "from", "until"].includes(key)));
+  const data = await pageResult(absenceData(await getIdentity(), false, Number(page ?? 1), undefined, filters));
+  return <>
+    <PageHeader title="My leave" description="Request leave and follow its review. No leave balance is calculated by this system." actions={<RequestLeaveButton timezone={data.timezone} />} />
+    <FilterBar resetHref="/me/leave" columns={3}><SelectField label="Status" name="status" defaultValue={q.status ?? ""}><option value="">All statuses</option>{["PENDING", "APPROVED", "REJECTED", "WITHDRAWN", "CANCELLED"].map(s => <option key={s} value={s}>{s[0] + s.slice(1).toLowerCase()}</option>)}</SelectField><SelectField label="Leave type" name="category" defaultValue={q.category ?? ""}><option value="">All types</option>{leaveCategories.map(s => <option key={s} value={s}>{s[0] + s.slice(1).toLowerCase()}</option>)}</SelectField></FilterBar>
+    <Absence data={data} staff={false} />
+    <Pagination page={data.page} hasNext={data.hasNext} query={q} />
+  </>;
+}

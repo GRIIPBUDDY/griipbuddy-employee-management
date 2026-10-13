@@ -1,12 +1,12 @@
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Field } from "@/components/ui/field";
+import { Field, CheckboxField } from "@/components/ui/field";
 import { ActionForm } from "@/components/ui/action-form";
+import { Alert } from "@/components/ui/alert";
+import { AuthFrame } from "@/components/layout/auth-frame";
 import { loginAction } from "@/features/accounts/actions";
 export default async function Login({ searchParams }: { searchParams: Promise<{ changed?: string }> }) {
   const { changed } = await searchParams;
-  return <main id="main" className="flex min-h-screen items-center justify-center bg-slate-50 p-6"><div className="w-full max-w-md"><p className="mb-6 text-center text-lg font-semibold text-blue-700">GriipBuddy · People</p><Card><CardHeader><CardTitle>Welcome back</CardTitle><CardDescription>Sign in to your employee workspace.</CardDescription></CardHeader><CardContent>
-    {changed && <p role="status" className="mb-5 rounded bg-emerald-50 p-3 text-sm text-emerald-800">Password updated. Sign in with your new password.</p>}
-    <ActionForm action={loginAction} submitLabel="Sign in"><Field label="Work email" name="email" type="email" required autoComplete="username" maxLength={254} /><Field label="Password" name="password" type="password" required autoComplete="current-password" maxLength={128} /><label className="flex items-center gap-2 text-sm"><input type="checkbox" name="remember"/>Remember me</label></ActionForm>
-    <p className="mt-6 text-sm text-muted-foreground">Need an account or a password reset? Contact your administrator.</p>
-  </CardContent></Card></div></main>;
+  return <AuthFrame title="Sign in" description="Use your work email and password." footer="Need an account or a password reset? Contact your administrator.">
+    {changed && <Alert tone="success" role="status" className="mb-5">Password updated. Sign in with your new password.</Alert>}
+    <ActionForm action={loginAction} submitLabel="Sign in"><Field label="Work email" name="email" type="email" required autoComplete="username" maxLength={254} autoFocus /><Field label="Password" name="password" type="password" required autoComplete="current-password" maxLength={128} /><CheckboxField name="remember" label="Remember me" description="Stay signed in on this device for up to 30 days. Don’t use on shared computers." /></ActionForm>
+  </AuthFrame>;
 }
