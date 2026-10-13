@@ -12,6 +12,7 @@ import {notify} from "@/features/review/notifications";
 import type {Identity} from "@/types/auth";
 import {peopleStaff,publisher,publishedWarning,documentParentVisible} from "./access";
 import {performanceSchema,performanceEditSchema,warningSchema,warningEditSchema,recordCommandSchema,recordListSchema,ownListSchema} from "./validation";
+import { requireModule } from "@/features/settings/config";
 export type RecordKind="performance"|"warnings";
 const entity=(kind:RecordKind)=>kind==="performance"?"performance_reviews":"disciplinary_records";
 async function coverage(tx:Database,employeeId:string,stintId:string,from:string,until?:string){
@@ -19,7 +20,7 @@ async function coverage(tx:Database,employeeId:string,stintId:string,from:string
  if(!s||dateValue(from)<s.startDate||s.endDate&&(until?dateValue(until)>s.endDate:dateValue(from)>=s.endDate))throw new AppError(400,"EMPLOYMENT_COVERAGE","Choose dates within the selected employment period.");
 }
 async function attachment(tx:Database,employeeId:string,id:string|null){if(id&&(!await tx.employeeDocument.findFirst({where:{id,employeeId,deletedAt:null},select:{id:true}})||await tx.employee.count({where:{id:employeeId,photoDocumentId:id}})))throw new AppError(400,"ATTACHMENT","Choose a current document for this employee, excluding profile photos.");}
-export async function createRecord(identity:Identity|null,kind:RecordKind,input:unknown){
+export async function createRecord(identity:Identity|null,kind:RecordKind,input:unknown){await requireModule(kind==="performance"?"performance":"warnings");
  await securityBoundary(identity,async a=>peopleStaff(a));
  if(kind==="performance"){
   const v=validated(performanceSchema,input);return authorizedMutation(identity,async(actor,tx)=>{peopleStaff(actor);await coverage(tx,v.employeeId,v.employmentPeriodId,v.startDate,v.endDate);
@@ -30,7 +31,7 @@ export async function createRecord(identity:Identity|null,kind:RecordKind,input:
   const row=await tx.disciplinaryRecord.create({data:{...v,issueDate:dateValue(v.issueDate),issuedBy:actor.userId}});
   await audit({actorUserId:actor.userId,employeeId:row.employeeId,action:"WARNING_CREATED",entity:entity(kind),entityId:row.id,after:v},tx);return row.id;});
 }
-export async function editRecord(identity:Identity|null,kind:RecordKind,input:unknown){
+export async function editRecord(identity:Identity|null,kind:RecordKind,input:unknown){await requireModule(kind==="performance"?"performance":"warnings");
  await securityBoundary(identity,async a=>peopleStaff(a));
  if(kind==="performance"){
   const v=validated(performanceEditSchema,input);return authorizedMutation(identity,async(actor,tx)=>{peopleStaff(actor);const old=await tx.performanceReview.findUnique({where:{id:v.id}});if(!old)throw new AppError(404,"NOT_FOUND","Review not found.");
@@ -57,7 +58,7 @@ async function recordEvent(tx:Database,userId:string,kind:RecordKind,id:string,e
  await peopleEvent(tx,{employeeId,actorUserId:userId,type,title,sourceType:entity(kind),sourceId:id,employeeVisible:visible});
  if(visible)await notify(tx,employeeId,type,entity(kind),id,`${kind}:${id}:${revision}`,kind==="performance"?"A performance review is available.":"An official notice is available. Any acknowledgement confirms receipt only.");
 }
-export async function publishRecord(identity:Identity|null,kind:RecordKind,input:unknown){
+export async function publishRecord(identity:Identity|null,kind:RecordKind,input:unknown){await requireModule(kind==="performance"?"performance":"warnings");
  await securityBoundary(identity,async a=>peopleStaff(a));const v=validated(recordCommandSchema,input);
  return authorizedMutation(identity,async(actor,tx)=>{
   const row=kind==="performance"?await tx.performanceReview.findUnique({where:{id:v.id}}):await tx.disciplinaryRecord.findUnique({where:{id:v.id}});
@@ -77,7 +78,7 @@ export async function publishRecord(identity:Identity|null,kind:RecordKind,input
   await recordEvent(tx,actor.userId,kind,row.id,row.employeeId,row.employeeVisible,kind==="performance"?"PERFORMANCE_FINALIZED":"WARNING_ISSUED",kind==="performance"?"Performance review finalized":"Official notice issued",row.revision+1);
  });
 }
-export async function revokeWarning(identity:Identity|null,input:unknown){
+export async function revokeWarning(identity:Identity|null,input:unknown){await requireModule("warnings");
  await securityBoundary(identity,async a=>peopleStaff(a));const v=validated(recordCommandSchema,input);
  return authorizedMutation(identity,async(actor,tx)=>{const row=await tx.disciplinaryRecord.findUnique({where:{id:v.id}});if(!row)throw new AppError(404,"NOT_FOUND","Warning not found.");publisher(actor,row.employeeId);
   if(!row.publishedAt||row.revokedAt||row.revision!==v.revision)throw new AppError(409,"STALE","Refresh a published current warning.");if(!v.reason)throw new AppError(400,"REASON","Explain revocation.");
@@ -87,7 +88,7 @@ export async function revokeWarning(identity:Identity|null,input:unknown){
   await peopleEvent(tx,{employeeId:row.employeeId,actorUserId:actor.userId,type:"WARNING_REVOKED",title:"Official notice revoked",sourceType:entity("warnings"),sourceId:row.id,employeeVisible:false});
  });
 }
-export async function acknowledgeWarning(identity:Identity|null,input:unknown){
+export async function acknowledgeWarning(identity:Identity|null,input:unknown){await requireModule("warnings");
  const v=validated(recordCommandSchema,input);return authorizedMutation(identity,async(actor,tx)=>{
   const r=await tx.disciplinaryRecord.findFirst({where:{id:v.id,employeeId:actor.employeeId??"00000000-0000-0000-0000-000000000000",...publishedWarning}});if(!r)throw new AppError(404,"NOT_FOUND","Notice not found.");
   if(r.revision!==v.revision||!r.acknowledgementRequested)throw new AppError(409,"STALE","Refresh the current notice before acknowledging receipt.");if(r.acknowledgedAt)return;
@@ -96,7 +97,7 @@ export async function acknowledgeWarning(identity:Identity|null,input:unknown){
   await peopleEvent(tx,{employeeId:r.employeeId,actorUserId:actor.userId,type:"WARNING_RECEIPT_ACKNOWLEDGED",title:"Official notice receipt acknowledged; agreement not implied",sourceType:entity("warnings"),sourceId:r.id});
  });
 }
-export async function recordData(identity:Identity|null,kind:RecordKind,input:unknown={},staff=false){
+export async function recordData(identity:Identity|null,kind:RecordKind,input:unknown={},staff=false){await requireModule(kind==="performance"?"performance":"warnings");
  return securityBoundary(identity,async actor=>{if(staff)peopleStaff(actor);const v=validated(staff?recordListSchema:ownListSchema,input),employeeId=staff?("employeeId" in v?v.employeeId:undefined):actor.employeeId??"00000000-0000-0000-0000-000000000000";
   const where={...(employeeId?{employeeId}:{}),...(v.id?{id:v.id}:{}),...(staff?v.status==="DRAFT"?{publishedAt:null}:v.status==="PUBLISHED"?{publishedAt:{not:null}}:{}:{publishedAt:{not:null},employeeVisible:true})};
   const rows=kind==="performance"?await db.performanceReview.findMany({where:{...where,...(v.from||v.until?{startDate:{...(v.until?{lt:dateValue(v.until)}:{})},endDate:{...(v.from?{gt:dateValue(v.from)}:{})}}:{})},orderBy:[{startDate:"desc"},{id:"desc"}],skip:(v.page-1)*25,take:26}):await db.disciplinaryRecord.findMany({where:{...where,...(!staff||v.status==="PUBLISHED"?{revokedAt:null}:v.status==="REVOKED"?{revokedAt:{not:null}}:{}),...(v.severity?{severity:v.severity}:{}),...(v.from||v.until?{issueDate:{...(v.from?{gte:dateValue(v.from)}:{}),...(v.until?{lt:dateValue(v.until)}:{})}}:{})},orderBy:[{issueDate:"desc"},{id:"desc"}],skip:(v.page-1)*25,take:26});

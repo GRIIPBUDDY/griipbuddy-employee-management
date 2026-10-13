@@ -12,10 +12,23 @@ function Breakdown({ title, part, currency, tone }: { title: string; part: Recor
 }
 export function Earnings({ data }: { data: Awaited<ReturnType<typeof monthToDate>> }) {
   if (!data) return null;
+  if (!data.legacy && data.monthly) return <MonthlyEarnings data={data} />;
   return <Card><CardHeader actions={<StatusBadge status={data.paymentStatus} label={data.paymentStatus === "PAID" ? "Month paid" : "Month-end payment not yet recorded"} />}><CardTitle>{monthName(data.month)} earnings to date</CardTitle><CardDescription>Weekly statements are finalized after review. Payment is recorded separately at month end.</CardDescription></CardHeader>
     <CardContent className="space-y-4">{data.legacy ? <Alert tone="neutral">This month uses the earlier monthly calculation method. See your salary statements for details.</Alert> : <>
       <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-lg border bg-primary-soft/60 px-4 py-3"><p className="text-xs font-medium text-muted-foreground">Accumulated this month</p><p className="mt-1 text-2xl font-semibold tabular-nums">{formatMoney(data.total!, data.currency)}</p></div><div className="rounded-lg border px-4 py-3"><p className="text-xs font-medium text-muted-foreground">Finalized</p><p className="mt-1 text-lg font-semibold tabular-nums">{formatMoney(data.finalized, data.currency)}</p></div><div className="rounded-lg border px-4 py-3"><p className="text-xs font-medium text-muted-foreground">Estimate pending review</p><p className="mt-1 text-lg font-semibold tabular-nums">{formatMoney(data.awaitingReview, data.currency)}</p></div></div>
       <div className="grid gap-3 lg:grid-cols-2">{data.finalizedBreakdown && <Breakdown title="Finalized" part={data.finalizedBreakdown as Record<string, string>} currency={data.currency} tone="final" />}{data.awaitingReviewBreakdown && <Breakdown title="Awaiting weekly review" part={data.awaitingReviewBreakdown as Record<string, string>} currency={data.currency} tone="pending" />}</div>
       <p className="text-xs text-muted-foreground">Only approved overtime is included. Pending overtime and estimates may change after attendance and earnings review.</p></>}
+    </CardContent></Card>;
+}
+type Monthly = Extract<NonNullable<Awaited<ReturnType<typeof monthToDate>>>, { monthly: boolean }>;
+/** Monthly pay: one running estimate from attendance, approved overtime and approved adjustments, until HR finalizes the month. */
+export function MonthlyEarnings({ data }: { data: Monthly }) {
+  const final = data.finalStatement;
+  return <Card><CardHeader actions={<StatusBadge status={final ? (data.paymentStatus === "PAID" ? "PAID" : "FINALIZED") : "ESTIMATE"} label={final ? (data.paymentStatus === "PAID" ? "Paid" : "Finalized · payment pending") : "Estimate"} />}><CardTitle>{monthName(data.month)} salary</CardTitle><CardDescription>{final ? "This month’s salary is finalized." : "A running estimate. HR reviews attendance and overtime, then finalizes the month."}</CardDescription></CardHeader>
+    <CardContent className="space-y-4">
+      <div className="rounded-lg border bg-primary-soft/60 px-4 py-3"><p className="text-xs font-medium text-muted-foreground">{final ? "Finalized salary" : "Estimated so far this month"}</p><p className="mt-1 text-2xl font-semibold tabular-nums">{formatMoney(final ? final.finalAmount : data.total!, data.currency)}</p></div>
+      {!final && data.awaitingReviewBreakdown && <dl className="space-y-1.5 rounded-lg border p-4 text-sm">{Object.entries(data.awaitingReviewBreakdown as Record<string, string>).map(([key, value]) => <div key={key} className={key === "total" ? "flex justify-between border-t pt-2 font-semibold" : "flex justify-between text-[#344054]"}><dt>{names[key] ?? key}</dt><dd className="tabular-nums">{key === "deductions" && value !== "0.00" ? "−" : ""}{formatMoney(value, data.currency)}</dd></div>)}</dl>}
+      {data.expectedPayment && data.paymentStatus !== "PAID" && <p className="text-sm">Expected payment: <span className="font-medium">{new Intl.DateTimeFormat("en-GB", { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${data.expectedPayment}T00:00:00Z`))}</span></p>}
+      <p className="text-xs text-muted-foreground">Only approved overtime and approved adjustments are included. The estimate can change until the month is finalized.</p>
     </CardContent></Card>;
 }

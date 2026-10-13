@@ -6,7 +6,7 @@ export type PayDay={date:string;employmentPeriodId:string;rate:RateFact|null;act
 export type PayInput={employeeId:string;period:{id:string;from:string;until:string;timezone:string;currency:string;inputRevision:number;method?:string};days:PayDay[];sources:Record<string,unknown>;commissions:{id:string;reference:string;amount:string;revision:number;orderAt:string}[];adjustments:{id:string;type:string;amount:string;reason:string;revision:number;commissionRelated:boolean}[];blockers:string[]};
 export function calculatePay(input:PayInput) {
  let base=decimal(0),overtime=decimal(0);
- const attendance=input.period.method==="WEEKLY_ATTENDANCE";
+ const attendance=input.period.method==="WEEKLY_ATTENDANCE" || input.period.method==="MONTHLY_ATTENDANCE";
  const monthDays=Temporal.PlainDate.from(input.period.from).daysInMonth;
  const segments=input.days.map(day=>{
   const rate=day.rate,regular=subtract(day.actual,day.approvedOvertime),regularSeconds=seconds(regular),paidSeconds=seconds(day.paidAbsence),scheduledSeconds=seconds(day.scheduled),overtimeSeconds=seconds(day.approvedOvertime);

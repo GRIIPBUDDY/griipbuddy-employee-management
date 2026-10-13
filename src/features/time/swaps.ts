@@ -15,6 +15,7 @@ import { dateKey,dateValue,localDate,addDays,weekday } from "./dates";
 import { occurrence } from "./occurrences";
 import { patternInclude,publishScheduleInTransaction,timeEvent } from "./schedules";
 import { notify } from "@/features/review/notifications";
+import { requireModule } from "@/features/settings/config";
 const requestSchema=z.object({requesterSlotId:uuidSchema,requesterDate:dateSchema,partnerEmployeeId:uuidSchema,partnerSlotId:uuidSchema,partnerDate:dateSchema,reason:z.string().trim().min(1).max(500),operationKey:uuidSchema}).strict();
 const consentSchema=z.object({id:uuidSchema,revision:z.number().int().positive(),accept:z.boolean(),comment:z.string().trim().max(500).default("")}).strict();
 const decisionSchema=z.object({id:uuidSchema,revision:z.number().int().positive(),approve:z.boolean(),comment:z.string().trim().min(1).max(500)}).strict();
@@ -39,7 +40,7 @@ const fingerprint=stableFingerprint;
 async function conflicting(tx:Database,a:Selection,b:Selection,except?:string){
  return tx.shiftSwapRequest.findFirst({where:{...(except?{id:{not:except}}:{}),status:{in:["AWAITING_PARTNER","ACCEPTED","APPROVED"]},OR:[{requesterSlotId:a.slotId,requesterDate:dateValue(a.date)},{partnerSlotId:a.slotId,partnerDate:dateValue(a.date)},{requesterSlotId:b.slotId,requesterDate:dateValue(b.date)},{partnerSlotId:b.slotId,partnerDate:dateValue(b.date)}]}});
 }
-export async function requestSwap(identity:Identity|null,input:unknown){
+export async function requestSwap(identity:Identity|null,input:unknown){await requireModule("shiftSwaps");
  await securityBoundary(identity,async a=>{assertOperational(a);if(a.role!=="EMPLOYEE" || !a.employeeId || !a.employmentActive)throw new AppError(403,"ROLE_DENIED","Active employee access is required.");});const v=validated(requestSchema,input);
  return authorizedMutation(identity,async(actor,tx)=>{
   assertOperational(actor);if(actor.role!=="EMPLOYEE" || !actor.employeeId || !actor.employmentActive || actor.employeeId===v.partnerEmployeeId)throw new AppError(403,"SWAP_INELIGIBLE","Choose another active employee's future session.");
@@ -51,7 +52,7 @@ export async function requestSwap(identity:Identity|null,input:unknown){
   await notify(tx,b.employeeId,"SHIFT_SWAP_CONSENT","shift_swap_requests",r.id,`swap-consent:${r.id}`,"A colleague has requested a shift swap. Your consent is required.");return r.id;
  });
 }
-export async function consentSwap(identity:Identity|null,input:unknown){
+export async function consentSwap(identity:Identity|null,input:unknown){await requireModule("shiftSwaps");
  await securityBoundary(identity,async a=>assertOperational(a));const v=validated(consentSchema,input);
  return authorizedMutation(identity,async(a,tx)=>{
   assertOperational(a);const r=await tx.shiftSwapRequest.findFirst({where:{id:v.id,partnerEmployeeId:a.employeeId??"00000000-0000-0000-0000-000000000000"}});if(!r)throw new AppError(404,"NOT_FOUND","Swap request not found.");
@@ -70,7 +71,7 @@ async function exchange(tx:Database,actor:Actor,own:Selection,peer:Selection,pee
  }
  void now;
 }
-export async function decideSwap(identity:Identity|null,input:unknown){
+export async function decideSwap(identity:Identity|null,input:unknown){await requireModule("shiftSwaps");
  await securityBoundary(identity,async a=>assertRole(a,["ADMIN","HR_MANAGER"]));const v=validated(decisionSchema,input);
  return authorizedMutation(identity,async(a,tx)=>{
   assertRole(a,["ADMIN","HR_MANAGER"]);const r=await tx.shiftSwapRequest.findUnique({where:{id:v.id}});if(!r)throw new AppError(404,"NOT_FOUND","Swap request not found.");
@@ -86,11 +87,11 @@ export async function decideSwap(identity:Identity|null,input:unknown){
   for(const employeeId of [r.requesterEmployeeId,r.partnerEmployeeId]){await timeEvent(tx,employeeId,a.userId,now,"SHIFT_SWAP_REVIEWED","Shift swap reviewed","shift_swap_requests",r.id);await notify(tx,employeeId,"SHIFT_SWAP_REVIEWED","shift_swap_requests",r.id,`swap-decided:${r.id}`,v.approve?"Your shift swap was approved and the dated assignments were updated.":"Your shift swap was rejected.");}
  });
 }
-export async function swapData(identity:Identity|null,staff=false){return securityBoundary(identity,async a=>{
+export async function swapData(identity:Identity|null,staff=false){await requireModule("shiftSwaps");return securityBoundary(identity,async a=>{
  if(staff)assertRole(a,["ADMIN","HR_MANAGER"]);const rows=await db.shiftSwapRequest.findMany({where:staff?{}:{OR:[{requesterEmployeeId:a.employeeId??"00000000-0000-0000-0000-000000000000"},{partnerEmployeeId:a.employeeId??"00000000-0000-0000-0000-000000000000"}]},orderBy:{createdAt:"desc"},take:100});
  return {employeeId:a.employeeId,operational:a.accountStatus!=="ON_HOLD",records:await Promise.all(rows.map(async r=>({...r,sourceSnapshot:undefined,reviewComment:staff?r.reviewComment:undefined,requester:await db.employee.findUniqueOrThrow({where:{id:r.requesterEmployeeId},select:{legalName:true}}),partner:await db.employee.findUniqueOrThrow({where:{id:r.partnerEmployeeId},select:{legalName:true}})})))};
 });}
-export async function swapOptions(identity:Identity|null){return securityBoundary(identity,async a=>{
+export async function swapOptions(identity:Identity|null){await requireModule("shiftSwaps");return securityBoundary(identity,async a=>{
  if(!a.employeeId || a.role!=="EMPLOYEE")return [];
  const settings=await db.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(db),today=localDate(now,settings.timezone),until=addDays(today,29),employees=await db.employee.findMany({where:{user:{role:"EMPLOYEE",isActive:true,accountStatus:"ACTIVE"}},take:100,orderBy:{legalName:"asc"},select:{id:true,legalName:true}}),result=[];
  for(const e of employees){const patterns=await db.workSchedule.findMany({where:{employeeId:e.id,supersededAt:null,effectiveFrom:{lt:dateValue(until)},OR:[{effectiveUntil:null},{effectiveUntil:{gt:dateValue(today)}}]},include:patternInclude});for(let date=addDays(today,1);date<until;date=addDays(date,1))for(const p of patterns)for(const slot of p.slots){const o=occurrence(p,slot,date,settings.timezone,settings.earlyCheckinMinutes);if(o)result.push({employeeId:e.id,name:e.legalName,slotId:slot.id,date,start:o.scheduledStartAt,end:o.scheduledEndAt,own:e.id===a.employeeId});}}

@@ -19,6 +19,7 @@ import { payStaff,adjustmentReviewer,canCommissionStaff } from "./access";
 import { captureEmployee } from "./capture";
 import { calculatePay,type PayInput } from "./engine";
 import { decimal,money } from "./money";
+import { requireModule } from "@/features/settings/config";
 const json=(v:unknown)=>JSON.parse(JSON.stringify(v)) as Prisma.InputJsonObject;
 export const amountKeys=["baseAmount","overtimeAmount","commissionAmount","bonusAmount","deductionAmount","otherAmount"] as const;
 export type Amounts=Record<typeof amountKeys[number],string> & {finalAmount:string};
@@ -58,7 +59,7 @@ export async function weeklyCapture(tx:Database,actor:Actor,employeeId:string,we
  const snapshot={formatVersion:1,formulaVersion:"weekly-attendance-v2",employeeId,week,until,timezone:settings.timezone,currency:settings.currency,commissionRelated:commissions.length>0 || adjustments.some(a=>a.commissionRelated),monthlyInputs:inputs.map(i=>({...i,period:{...i.period,inputRevision:0}})),commissions,adjustments,potentialOvertimeSeconds:current.potentialSeconds,approvedOvertimeSeconds:inputs.flatMap(i=>i.days).filter(d=>d.date>=week && d.date<until).reduce((n,d)=>n+seconds(d.approvedOvertime),0),blockers:[...new Set(blockers)]};
  const fingerprint=createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");return {amounts,components,snapshot,fingerprint,settings};
 }
-export async function calculateWeekly(identity:Identity|null,input:unknown){
+export async function calculateWeekly(identity:Identity|null,input:unknown){await requireModule("weeklyEarnings");
  await securityBoundary(identity,async a=>payStaff(a));const v=validated(calculateSchema,input);
  return authorizedMutation(identity,async(a,tx)=>{
   payStaff(a);const old=await tx.weeklyEarningStatement.findUnique({where:{employeeId_weekStartDate:{employeeId:v.employeeId,weekStartDate:dateValue(v.week)}}});
@@ -68,7 +69,7 @@ export async function calculateWeekly(identity:Identity|null,input:unknown){
   await audit({actorUserId:a.userId,employeeId:v.employeeId,action:"WEEKLY_EARNINGS_CALCULATED",entity:"weekly_earning_statements",entityId:row.id,after:{week:v.week,finalAmount:row.finalAmount.toFixed(2),commissionRelated:captured.snapshot.commissionRelated,blockers:captured.snapshot.blockers}},tx);await notify(tx,v.employeeId,"STAFF_WEEKLY_EARNINGS_CALCULATED","weekly_earning_statements",row.id,`weekly-calculated:${row.id}:${row.revision}`,"A weekly earning statement needs review.",true);return row.id;
  });
 }
-export async function transitionWeekly(identity:Identity|null,input:unknown){
+export async function transitionWeekly(identity:Identity|null,input:unknown){await requireModule("weeklyEarnings");
  await securityBoundary(identity,async a=>payStaff(a));const v=validated(transitionSchema,input);
  return authorizedMutation(identity,async(a,tx)=>{
   const old=await tx.weeklyEarningStatement.findUnique({where:{id:v.id}});if(!old)throw new AppError(404,"NOT_FOUND","Weekly statement not found.");adjustmentReviewer(a,old.employeeId,(old.calculationSnapshot as {commissionRelated:boolean}).commissionRelated);
@@ -117,13 +118,13 @@ export async function recordPayment(identity:Identity|null,input:unknown){
   for(const r of rows)await notify(tx,r.employeeId,"SALARY_PAID","salary_calculations",r.id,`salary-paid:${p.id}:${r.id}`,"Payment has been recorded for your finalized monthly statement.");return p.id;
  });
 }
-export async function weeklyData(identity:Identity|null,own=false){return securityBoundary(identity,async a=>{
+export async function weeklyData(identity:Identity|null,own=false){await requireModule("weeklyEarnings");return securityBoundary(identity,async a=>{
  if(!own)payStaff(a);const rows=await db.weeklyEarningStatement.findMany({where:{...(own?{employeeId:a.employeeId??"00000000-0000-0000-0000-000000000000"}:{})},orderBy:{weekStartDate:"desc"},take:100});
  return Promise.all(rows.map(async r=>{const permitted=own?a.preorderCommissionEnabled:canCommissionStaff(a),restricted=(r.calculationSnapshot as {commissionRelated:boolean}).commissionRelated===true;const safe={id:r.id,employeeId:r.employeeId,week:dateKey(r.weekStartDate),until:dateKey(r.weekEndDate),status:r.status,revision:r.revision,currency:r.currency,finalAmount:r.finalAmount.toFixed(2),finalizedAt:r.finalizedAt,potentialOvertimeSeconds:(r.calculationSnapshot as {potentialOvertimeSeconds:number}).potentialOvertimeSeconds,approvedOvertimeSeconds:(r.calculationSnapshot as {approvedOvertimeSeconds:number}).approvedOvertimeSeconds,employee:own?null:await db.employee.findUniqueOrThrow({where:{id:r.employeeId},select:{legalName:true}})};
  return {...safe,...(!restricted || permitted?{baseAmount:r.baseAmount.toFixed(2),overtimeAmount:r.overtimeAmount.toFixed(2),bonusAmount:r.bonusAmount.toFixed(2),deductionAmount:r.deductionAmount.toFixed(2),otherAmount:r.otherAmount.toFixed(2),...(permitted?{commissionAmount:r.commissionAmount.toFixed(2)}:{})}:{}),...(!own && (!restricted||permitted)?{blockers:(r.calculationSnapshot as {blockers:string[]}).blockers}: {})};}));
 });}
 const correctionSchema=z.object({originalStatementId:uuidSchema,targetPeriodId:uuidSchema,amount:z.string().regex(/^-?\d{1,12}(\.\d{1,2})?$/),reason:z.string().trim().min(1).max(500),operationKey:uuidSchema}).strict();
-export async function correctWeekly(identity:Identity|null,input:unknown){
+export async function correctWeekly(identity:Identity|null,input:unknown){await requireModule("weeklyEarnings");
  await securityBoundary(identity,async a=>payStaff(a));const v=validated(correctionSchema,input);
  return authorizedMutation(identity,async(a,tx)=>{
   const original=await tx.weeklyEarningStatement.findUnique({where:{id:v.originalStatementId}}),period=await tx.salaryPeriod.findUnique({where:{id:v.targetPeriodId}});if(!original || original.status!=="FINALIZED" || !period)throw new AppError(404,"NOT_FOUND","Final weekly statement or target month not found.");
@@ -140,7 +141,7 @@ export async function monthToDate(identity:Identity|null){return securityBoundar
  return db.$transaction(async tx=>{
   const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(tx),today=localDate(now,settings.timezone),from=today.slice(0,7)+"-01",until=Temporal.PlainDate.from(from).add({months:1}).toString();
   if(dateValue(from)<settings.earningsEffectiveFrom)return {month:from.slice(0,7),currency:settings.currency,legacy:true,finalized:"0.00",awaitingReview:"0.00",paymentStatus:"UNPAID"};
-  const stored=await tx.salaryPeriod.findUnique({where:{startDate:dateValue(from)}}),p=stored??{id:"00000000-0000-0000-0000-000000000000",startDate:dateValue(from),endDate:dateValue(until),timezoneSnapshot:settings.timezone,currency:settings.currency,inputRevision:1,calculationMethod:"WEEKLY_ATTENDANCE"} as SalaryPeriod;
+  const stored=await tx.salaryPeriod.findUnique({where:{startDate:dateValue(from)}}),p=stored??{id:"00000000-0000-0000-0000-000000000000",startDate:dateValue(from),endDate:dateValue(until),timezoneSnapshot:settings.timezone,currency:settings.currency,inputRevision:1,calculationMethod:"MONTHLY_ATTENDANCE"} as SalaryPeriod;
   const captured=await captureEmployee(tx,p,a.employeeId!,now),calculated=calculatePay(captured),rows=await tx.weeklyEarningStatement.findMany({where:{employeeId:a.employeeId!,status:"FINALIZED",weekStartDate:{lt:p.endDate},weekEndDate:{gt:p.startDate}}}),frozen=zero(),pending=zero();
   for(const r of rows){const part=(r.monthComponents as unknown as Record<string,Amounts>)[from.slice(0,7)];if(part && r.currency!==p.currency)throw new AppError(409,"CURRENCY_MISMATCH","Accumulated earnings must retain the monthly period currency.");if(part)for(const k of amountKeys)frozen[k]=money(decimal(frozen[k]).plus(part[k]));}
   const unfrozen=(date:string)=>!rows.some(r=>date>=dateKey(r.weekStartDate)&&date<dateKey(r.weekEndDate));
@@ -149,6 +150,7 @@ export async function monthToDate(identity:Identity|null){return securityBoundar
   for(const adj of await tx.salaryAdjustment.findMany({where:{employeeId:a.employeeId!,salaryPeriodId:p.id,status:"APPROVED",includedWeeklyStatementId:null,includedSalaryCalculationId:null}})){const k=adj.type==="BONUS"?"bonusAmount":adj.type==="DEDUCTION"?"deductionAmount":"otherAmount";pending[k]=money(decimal(pending[k]).plus(adj.amount));}
   pending.baseAmount=money(pending.baseAmount);pending.overtimeAmount=money(pending.overtimeAmount);frozen.finalAmount=total(frozen);pending.finalAmount=total(pending);const aggregateOnly=!a.preorderCommissionEnabled && (captured.commissions.length>0 || captured.adjustments.some(r=>r.commissionRelated) || rows.some(r=>(r.calculationSnapshot as {commissionRelated:boolean}).commissionRelated));
   const show=(v:Amounts)=>aggregateOnly?{total:v.finalAmount}:{base:v.baseAmount,approvedOvertime:v.overtimeAmount,bonuses:v.bonusAmount,deductions:v.deductionAmount,other:v.otherAmount,...(a.preorderCommissionEnabled?{commissions:v.commissionAmount}:{}),total:v.finalAmount};
-  return {month:from.slice(0,7),currency:p.currency,legacy:false,finalized:frozen.finalAmount,awaitingReview:pending.finalAmount,total:money(decimal(frozen.finalAmount).plus(pending.finalAmount)),finalizedBreakdown:show(frozen),awaitingReviewBreakdown:show(pending),paymentStatus:stored?.paymentStatus??"UNPAID",paidAt:stored?.paidAt??null};
+  const statement=stored?.status==="FINALIZED"?await tx.salaryCalculation.findUnique({where:{employeeId_salaryPeriodId:{employeeId:a.employeeId!,salaryPeriodId:stored.id}},select:{id:true,finalAmount:true}}):null;
+  return {month:from.slice(0,7),currency:p.currency,legacy:false,monthly:p.calculationMethod!=="WEEKLY_ATTENDANCE",expectedPayment:settings.salaryPaymentDay?Temporal.PlainDate.from(from).add({months:1}).with({day:settings.salaryPaymentDay}).toString():null,periodStatus:stored?.status??"NOT_STARTED",finalStatement:statement?{id:statement.id,finalAmount:statement.finalAmount.toFixed(2)}:null,finalized:frozen.finalAmount,awaitingReview:pending.finalAmount,total:money(decimal(frozen.finalAmount).plus(pending.finalAmount)),finalizedBreakdown:show(frozen),awaitingReviewBreakdown:show(pending),paymentStatus:stored?.paymentStatus??"UNPAID",paidAt:stored?.paidAt??null};
  },{isolationLevel:"RepeatableRead"});
 });}

@@ -21,7 +21,7 @@
   --background: #f5f6f8; --surface: #ffffff; --subtle: #f9fafb; --card: #ffffff;
   --foreground: #101828; --muted: #f2f4f7; --muted-foreground: #526077; --accent: #f2f4f7;
   --border: #e4e7ec; --border-strong: #d0d5dd;
-  --primary: #3651d4; --primary-strong: #2a40ad; --primary-soft: #eef1fd; --primary-foreground: #ffffff;
+  --primary: #4b2a5e; --primary-strong: #3e224d; --primary-soft: #f6f4f7; --primary-foreground: #ffffff; --brand-panel: #311b3d;
   --success: #087443; --success-soft: #ecfdf3; --warning: #a15c07; --warning-soft: #fffaeb;
   --danger: #b42318; --danger-soft: #fef3f2; --info: #175cd3; --info-soft: #eff8ff;
 }
