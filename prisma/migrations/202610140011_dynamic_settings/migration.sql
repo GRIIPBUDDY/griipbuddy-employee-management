@@ -1,5 +1,7 @@
 -- Configurable organization: branding, modules, attendance/leave rules, editable lists, leave allowances and
 -- monthly-only payroll. Additive: no rows are deleted and existing codes remain valid list items.
+-- Applied atomically: either every statement below takes effect or none does.
+BEGIN;
 
 -- Branding, module switches and rules.
 ALTER TABLE organization_settings
@@ -118,3 +120,4 @@ DO $$ DECLARE source TEXT;guard TEXT:='OR NEW.calculation_method<>OLD.calculatio
  IF position(guard IN source)=0 THEN RAISE EXCEPTION 'Unexpected salary history guard';END IF;
  EXECUTE replace(source,guard,'OR (NEW.calculation_method<>OLD.calculation_method AND NOT (OLD.calculation_method=''WEEKLY_ATTENDANCE'' AND NEW.calculation_method=''MONTHLY_ATTENDANCE'' AND OLD.status<>''FINALIZED'' AND NOT EXISTS(SELECT 1 FROM weekly_earning_statements w WHERE w.status=''FINALIZED'' AND w.week_start_date<NEW.end_date AND w.week_end_date>NEW.start_date)))');
 END $$;
+COMMIT;
