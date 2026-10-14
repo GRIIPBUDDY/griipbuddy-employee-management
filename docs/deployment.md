@@ -1,8 +1,10 @@
 # Deployment guide
 
-How the GriipBuddy employee app runs on the Hostinger VPS, how to release a new version safely, and how to back up, restore and roll back. Production address: **https://griipbuddy.cloud**.
+How to run the app on a Linux server with Docker and Nginx, release new versions safely, and back up, restore and roll back. The reference installation runs on a small Hostinger VPS (KVM 2) shared with other websites.
 
-The same VPS hosts other websites and containers. Everything here touches **only** the `griipbuddy-employee` project and the griipbuddy.cloud route.
+Replace `<your-domain>` with your own address, for example `hr.example.com`. The folder and project names below are the recommended layout; you can rename them consistently.
+
+If the server hosts other websites and containers, everything here touches **only** the `griipbuddy-employee` project and your domain's route.
 
 ## 1. What runs where
 
@@ -13,7 +15,7 @@ The same VPS hosts other websites and containers. Everything here touches **only
 | Configuration and secrets | `/srv/griipbuddy-config/employee.env` (mode 0600, never in git) |
 | Containers | Docker Compose project `griipbuddy-employee`, defined by `docker-compose.hostinger.yml`. `employee-db` is PostgreSQL 18 with no public port; `employee-app` is Next.js on `127.0.0.1:3100`. |
 | Data | Docker volumes `employee-postgres` (database) and `employee-documents` (uploaded files) |
-| Web traffic | Host Nginx, `/etc/nginx/sites-available/griipbuddy-employee.conf`, forwards griipbuddy.cloud to `127.0.0.1:3100`. Certificates come from Let's Encrypt (certbot). |
+| Web traffic | Host Nginx, `/etc/nginx/sites-available/griipbuddy-employee.conf`, forwards `<your-domain>` to `127.0.0.1:3100`. Certificates come from Let's Encrypt (certbot). |
 | Daily notifications | systemd `griipbuddy-employee-notifications.timer` (18:10 UTC), which runs `npm run notifications:due` in a one-off container |
 | Backups | Recovery sets in `/srv/griipbuddy-recovery/<NAME>`, plus an encrypted copy off the server |
 | Backup tools | `/srv/griipbuddy-config/tools/`: `node24` (Node.js 24) and `recovery-hostinger/` (see §5) |
@@ -106,13 +108,13 @@ readlink /srv/griipbuddy-employee/current > $W/previous-release.txt
 docker inspect griipbuddy-employee-employee-app-1 --format '{{.Image}}' > $W/previous-image.txt
 ```
 
-1. **Maintenance on (griipbuddy.cloud only).** In the `server_name griipbuddy.cloud;` block, add these lines inside `location / {` and before `proxy_pass`:
+1. **Maintenance on (your domain only).** In the `server_name <your-domain>;` block, add these lines inside `location / {` and before `proxy_pass`:
    ```nginx
    default_type text/plain;
    add_header Retry-After 30 always;
    return 503 "The employee workspace is being updated. Please refresh shortly.\n";
    ```
-   Then run `nginx -t && systemctl reload nginx`. Wait until `https://griipbuddy.cloud/login` returns 503.
+   Then run `nginx -t && systemctl reload nginx`. Wait until `https://<your-domain>/login` returns 503.
 2. **Pause the daily job:** `systemctl stop griipbuddy-employee-notifications.timer griipbuddy-employee-notifications.service`.
 3. **Final backup:** with no one writing, run the backup again (§5) into `/srv/griipbuddy-recovery/<DATE>-cutover-<RELEASE>`, and save a fingerprint: `psql_ro < fingerprint.sql > $W/before.tsv`.
 4. **Stop the app:** `app stop -t 30 employee-app`.
@@ -128,11 +130,11 @@ docker inspect griipbuddy-employee-employee-app-1 --format '{{.Image}}' > $W/pre
    ```
 8. **Start the new app:** `app up -d --no-deps --no-build --wait --wait-timeout 150 employee-app`, then `curl -fsS http://127.0.0.1:3100/api/health/ready`.
 9. **Check the data:** `psql_ro < fingerprint.sql > $W/after.tsv; cmp $W/before.tsv $W/after.tsv`. For an app-only release the two must be identical. For a migration release, only the intended new tables or rows may differ.
-10. **Maintenance off:** `cp -p $W/nginx.conf.before /etc/nginx/sites-available/griipbuddy-employee.conf && nginx -t && systemctl reload nginx`. Wait until `https://griipbuddy.cloud/login` returns 200.
+10. **Maintenance off:** `cp -p $W/nginx.conf.before /etc/nginx/sites-available/griipbuddy-employee.conf && nginx -t && systemctl reload nginx`. Wait until `https://<your-domain>/login` returns 200.
 11. **Resume the daily job:** `systemctl start griipbuddy-employee-notifications.timer`.
 
 **8. Verify and tidy up:**
-- `https://griipbuddy.cloud/api/health/ready` returns 200 and `/login` returns 200;
+- `https://<your-domain>/api/health/ready` returns 200 and `/login` returns 200;
 - `docker logs --since 10m griipbuddy-employee-employee-app-1` shows no errors;
 - every container is still `Up` (`docker ps`);
 - the other sites on the VPS still respond;
@@ -165,9 +167,15 @@ A **recovery set** contains:
 
 The database alone does not restore documents. Configuration and keys are not part of the set; keep them separately in a password manager or vault.
 
-**Tools.** The VPS uses the adapted copies in `$TOOLS`:
-- `recovery.mjs` treats `docker-compose.hostinger.yml` as a complete file. The copy in `scripts/operations/` always adds `docker-compose.yml`, which suits local development.
-- `recovery-oneoff.mjs` is the same tool, but reads documents through a one-off container, so it also works while the app container is stopped.
+**Tools.** The backup tool is `scripts/operations/recovery.mjs`. It always loads `docker-compose.yml` first, which suits development checkouts. A production server uses the standalone `docker-compose.hostinger.yml` instead, so install an adapted copy once, from any release folder:
+
+```sh
+install -d -m 700 $TOOLS
+cp /srv/griipbuddy-employee/current/scripts/operations/recovery*.mjs $TOOLS/
+sed -i "s/files:\['docker-compose.yml'\]/files:[]/" $TOOLS/recovery.mjs   # use only the --compose-file given
+```
+
+`$NODE` is a Node.js 24 binary kept next to the tools. Copy one from the official Node.js download, or use a system Node.js 24.
 
 **Create and verify a backup.** Use a new directory every time; existing sets are never overwritten.
 
@@ -238,7 +246,7 @@ Only for an empty server. An existing installation is updated with §3 instead.
    install -m 600 /srv/griipbuddy-employee/current/.env.production.example $CONF
    ```
    Then fill it in:
-   - `COMPOSE_PROJECT_NAME=griipbuddy-employee`, `APP_PORT=3100`, `APP_BASE_URL=https://griipbuddy.cloud` and `ALLOW_LOCAL_HTTP=false`;
+   - `COMPOSE_PROJECT_NAME=griipbuddy-employee`, `APP_PORT=3100`, `APP_BASE_URL=https://<your-domain>` and `ALLOW_LOCAL_HTTP=false`;
    - `EMPLOYEE_APP_IMAGE='sha256:<IMAGE_ID>'`;
    - `POSTGRES_DB` and `POSTGRES_USER`;
    - separate `openssl rand -hex 32` values for `AUTH_SECRET`, `POSTGRES_PASSWORD` and `POSTGRES_APP_PASSWORD`;
@@ -253,14 +261,14 @@ Only for an empty server. An existing installation is updated with §3 instead.
    curl -fsS http://127.0.0.1:3100/api/health/ready
    ```
 5. **Web traffic:**
-   - add an Nginx server block for griipbuddy.cloud that proxies `location /` to `http://127.0.0.1:3100`;
+   - add an Nginx server block for `<your-domain>` that proxies `location /` to `http://127.0.0.1:3100`;
    - preserve the `Host` and `X-Forwarded-*` headers, and set `client_max_body_size 16m` (documents are limited to 10 MB);
    - point the domain's DNS A record at the VPS;
-   - issue the certificate with `certbot --nginx -d griipbuddy.cloud`, redirecting HTTP to HTTPS;
+   - issue the certificate with `certbot --nginx -d <your-domain>`, redirecting HTTP to HTTPS;
    - finish with `nginx -t && systemctl reload nginx`.
 6. **Daily notifications:** create the systemd service, a oneshot with `WorkingDirectory=/srv/griipbuddy-employee/current` running `docker compose --env-file /srv/griipbuddy-config/employee.env -p griipbuddy-employee -f docker-compose.hostinger.yml run --rm --no-deps employee-app npm run notifications:due`. Then add a daily timer and enable it.
 7. **Hand over:**
-   - sign in at https://griipbuddy.cloud with the bootstrap administrator and change its password;
+   - sign in at https://<your-domain> with the bootstrap administrator and change its password;
    - remove the `BOOTSTRAP_ADMIN_*` values from the configuration file;
    - in Settings, check the company name, timezone (Asia/Dhaka), currency (BDT) and pay rules;
    - take the first backup (§5).
