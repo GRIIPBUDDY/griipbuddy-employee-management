@@ -25,6 +25,8 @@ export const resetPasswordSchema = z.object({ userId: uuidSchema, temporaryPassw
 export const settingsSchema = z.object({ companyName: z.string().trim().min(1).max(150), timezone: z.string().min(1).max(100).refine(v => {
   try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; }
 }, "Choose a valid IANA timezone."), currency: z.string().trim().toUpperCase().refine(v => Intl.supportedValuesOf("currency").includes(v), "Choose a supported three-letter currency code.").optional(), earlyCheckinMinutes: z.coerce.number().int().min(0).max(60) });
+/** Code of an editable list item (validated against active items by the service). */
+export const optionCode = z.string().trim().toUpperCase().regex(/^[A-Z][A-Z0-9_]{0,19}$/, "Choose an available option.");
 export function validated<T>(schema: z.ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input);
   if (!result.success) throw new AppError(400, "VALIDATION", result.error.issues[0]?.message ?? "Check the supplied information.");

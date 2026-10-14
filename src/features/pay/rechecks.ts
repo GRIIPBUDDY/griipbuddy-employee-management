@@ -12,9 +12,10 @@ import { databaseNow } from "@/features/time/clock";
 import { notify } from "@/features/review/notifications";
 import { adjustmentReviewer } from "./access";
 import { decimal, money } from "./money";
+import { requireModule } from "@/features/settings/config";
 const requestSchema=z.object({preorderId:uuidSchema,reason:z.string().trim().min(1).max(500),explanation:z.string().trim().max(2000).default(""),operationKey:uuidSchema}).strict();
 const resolveSchema=z.object({id:uuidSchema,revision:z.number().int().positive(),decision:z.enum(["REJECTED","CONFIRMED","CORRECTED"]),comment:z.string().trim().min(1).max(500),amount:z.string().regex(/^\d{1,12}(\.\d{1,2})?$/).optional(),correctionAdjustmentId:uuidSchema.optional()}).strict();
-export async function requestCommissionRecheck(identity:Identity|null,input:unknown){
+export async function requestCommissionRecheck(identity:Identity|null,input:unknown){await requireModule("commissions");
  await securityBoundary(identity,a=>{assertOwnCommission(a);return Promise.resolve();});const v=validated(requestSchema,input);
  return authorizedMutation(identity,async(a,tx)=>{
   assertOwnCommission(a);const order=await tx.preorder.findFirst({where:{id:v.preorderId,employeeId:a.employeeId!}});if(!order)throw new AppError(404,"NOT_FOUND","Record not found.");
@@ -26,7 +27,7 @@ export async function requestCommissionRecheck(identity:Identity|null,input:unkn
   await notify(tx,a.employeeId!,"STAFF_COMMISSION_RECHECK","preorders",order.id,`recheck:${r.id}`,"A recorded amount needs authorized review.",true);return r.id;
  });
 }
-export async function resolveCommissionRecheck(identity:Identity|null,input:unknown){
+export async function resolveCommissionRecheck(identity:Identity|null,input:unknown){await requireModule("commissions");
  await securityBoundary(identity,a=>{assertManageCommissions(a);return Promise.resolve();});const v=validated(resolveSchema,input);
  return authorizedMutation(identity,async(a,tx)=>{
   assertManageCommissions(a);const r=await tx.commissionRecheck.findUnique({where:{id:v.id}});if(!r)throw new AppError(404,"NOT_FOUND","Record not found.");adjustmentReviewer(a,r.employeeId,true);
@@ -47,7 +48,7 @@ export async function resolveCommissionRecheck(identity:Identity|null,input:unkn
   await notify(tx,r.employeeId,"COMMISSION_RECHECK_RESOLVED","preorders",order.id,`recheck-resolved:${r.id}`,"Your recheck request has been reviewed.");
  });
 }
-export async function commissionRechecks(identity:Identity|null,staff=false){return securityBoundary(identity,async a=>{
+export async function commissionRechecks(identity:Identity|null,staff=false){await requireModule("commissions");return securityBoundary(identity,async a=>{
  if(staff)assertManageCommissions(a);else assertOwnCommission(a);
  const rows=await db.commissionRecheck.findMany({where:staff?{}:{employeeId:a.employeeId!},orderBy:{createdAt:"desc"},take:100,select:{id:true,preorderId:true,employeeId:true,reason:true,explanation:true,status:true,createdAt:true,reviewedBy:true,reviewComment:true,resolvedAt:true,revision:true,correctionAdjustmentId:true}});return rows;
 });}

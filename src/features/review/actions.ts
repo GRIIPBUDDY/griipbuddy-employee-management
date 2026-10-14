@@ -20,9 +20,9 @@ export async function reviewAction(_:ActionState,form:FormData):Promise<ActionSt
    case "correctionWithdraw":await withdrawCorrection(identity,{id:text("id")});break;
    case "calculate":await calculateOvertime(identity,{employeeId:text("employeeId"),week:text("week")});break;
    case "overtimeDecision":await decideOvertime(identity,overtimeDecisionFromForm(form));break;
-   case "policy":await updateOvertimePolicy(identity,{effectiveFrom:text("effectiveFrom"),thresholdSeconds:Number(text("thresholdSeconds")),weekStartDay:Number(text("weekStartDay")),reason:text("reason")});break;
-   case "leave":await requestLeave(identity,{startAt:local("startAt"),endAt:local("endAt"),type:text("type"),reason:text("reason")});break;
-   case "datedLeave":await requestDatedLeave(identity,{startDate:text("startDate"),endDate:text("endDate"),type:text("type"),category:text("category"),reason:text("reason"),operationKey:text("operationKey")});break;
+   case "policy":await updateOvertimePolicy(identity,{effectiveFrom:text("effectiveFrom"),thresholdSeconds:form.has("thresholdHours")?Math.round(Number(text("thresholdHours"))*3600):Number(text("thresholdSeconds")),weekStartDay:Number(text("weekStartDay")),reason:text("reason")});break;
+   case "leave":await requestLeave(identity,{startAt:local("startAt"),endAt:local("endAt"),...(text("type")?{type:text("type")}:{}),reason:text("reason")});break;
+   case "datedLeave":await requestDatedLeave(identity,{startDate:text("startDate"),endDate:text("endDate"),...(text("type")?{type:text("type")}:{}),category:text("category"),reason:text("reason"),operationKey:text("operationKey")});break;
    case "leaveDecision":await decideLeave(identity,{id:text("id"),revision:Number(text("revision")),decision:text("decision"),comment:text("comment")});break;
    case "leaveWithdraw":await withdrawLeave(identity,{id:text("id")});break;
    case "holiday":await saveHoliday(identity,{date:text("date"),name:text("name"),reason:text("reason")});break;

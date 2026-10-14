@@ -109,11 +109,11 @@ test("notifications are owned by the recipient; marking one read does not affect
 test("mobile layout: no horizontal page scroll, and the navigation drawer works", async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } }), page = await context.newPage();
   await signedIn(page, "admin");
-  for (const path of ["/dashboard", "/manage/employees", "/manage/attendance", "/manage/tasks", "/manage/overtime", "/manage/weekly-earnings", "/manage/reports/attendance"]) { await page.goto(path); await noHorizontalOverflow(page); }
+  for (const path of ["/dashboard", "/manage/employees", "/manage/attendance", "/manage/tasks", "/manage/overtime", "/manage/salary", "/manage/settings", "/manage/reports/lateness"]) { await page.goto(path); await noHorizontalOverflow(page); }
   await page.getByRole("button", { name: "Open navigation" }).click();
   await page.getByRole("dialog", { name: "Workspace navigation" }).getByRole("link", { name: "Tasks" }).click();
   await page.waitForURL(/\/manage\/tasks/); await expect(page.getByRole("dialog", { name: "Workspace navigation" })).not.toBeVisible();
   await signedIn(page, "employee");
-  for (const path of ["/dashboard", "/me/schedule", "/me/tasks", "/me/weekly-earnings"]) { await page.goto(path); await noHorizontalOverflow(page); }
+  for (const path of ["/dashboard", "/me/schedule", "/me/tasks", "/me/salary", "/me/leave"]) { await page.goto(path); await noHorizontalOverflow(page); }
   await context.close();
 });

@@ -125,21 +125,12 @@ model EmploymentPeriod {
   @@map("employment_periods")
 }
 
-enum DocumentType {
-  PASSPORT
-  NATIONAL_ID
-  EMPLOYMENT_CONTRACT
-  EDUCATION
-  VISA_WORK_PERMIT
-  BANK
-  OTHER
-}
 
 model EmployeeDocument {
   id                 String @id @default(uuid()) @db.Uuid
   employeeId         String @map("employee_id") @db.Uuid
   employmentPeriodId String? @map("employment_period_id") @db.Uuid
-  type               DocumentType
+  type              String       @db.VarChar(20)
   displayName        String @map("display_name") @db.VarChar(150)
   storageKey         String @unique @map("storage_key") @db.VarChar(64)
   mimeType           String @map("mime_type") @db.VarChar(50)
@@ -203,6 +194,18 @@ model OrganizationSettings {
   rulesVersion           Int                @default(1) @map("rules_version")
   changedBy              String             @map("changed_by") @db.Uuid
   lastSuccessfulBackupAt DateTime?          @map("last_successful_backup_at") @db.Timestamptz(3)
+  companyLegalName       String             @default("GRIIPBUDDY LLC") @map("company_legal_name") @db.VarChar(150)
+  companyAddress         String             @default("1021 E Lincolnway, Cheyenne, Wyoming 82001, United States") @map("company_address") @db.VarChar(500)
+  brandColor             String             @default("#4b2a5e") @map("brand_color") @db.VarChar(7)
+  logoData               Bytes?             @map("logo_data")
+  logoMime               String?            @map("logo_mime") @db.VarChar(20)
+  logoRevision           Int                @default(0) @map("logo_revision")
+  enabledModules         Json               @default("{}") @map("enabled_modules")
+  lateGraceMinutes       Int                @default(0) @map("late_grace_minutes") @db.SmallInt
+  workingDays            Json               @default("[1,2,3,4,5,6]") @map("working_days")
+  leaveDayBasis          String             @default("WORKING") @map("leave_day_basis") @db.VarChar(10)
+  leaveOverBalance       String             @default("BLOCK") @map("leave_over_balance") @db.VarChar(10)
+  salaryPaymentDay       Int?               @map("salary_payment_day") @db.SmallInt
   createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt              DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
   changer                User               @relation(fields: [changedBy], references: [id], onDelete: Restrict)
@@ -598,6 +601,7 @@ model SalaryAdjustment {
  status String @default("PENDING") @db.VarChar(20)
  commissionRelated Boolean @default(false) @map("commission_related")
  correctsSalaryCalculationId String? @map("corrects_salary_calculation_id") @db.Uuid
+ category String? @db.VarChar(20)
  reconciliationSnapshot Json? @map("reconciliation_snapshot")
  createdBy String @map("created_by") @db.Uuid
  approvedBy String? @map("approved_by") @db.Uuid
@@ -753,4 +757,33 @@ model ShiftSwapRequest {
  @@index([requesterEmployeeId,status])
  @@index([partnerEmployeeId,status])
  @@map("shift_swap_requests")
+}
+model OptionItem {
+ id String @id @default(uuid()) @db.Uuid
+ list String @db.VarChar(30)
+ code String @db.VarChar(20)
+ label String @db.VarChar(100)
+ sortOrder Int @default(0) @map("sort_order")
+ isActive Boolean @default(true) @map("is_active")
+ attributes Json @default("{}")
+ createdBy String? @map("created_by") @db.Uuid
+ revision Int @default(1)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+ @@unique([list,code])
+ @@map("option_items")
+}
+model LeaveAllowance {
+ id String @id @default(uuid()) @db.Uuid
+ employeeId String @map("employee_id") @db.Uuid
+ year Int @db.SmallInt
+ category String @db.VarChar(20)
+ days Decimal @db.Decimal(5,1)
+ reason String @db.VarChar(500)
+ createdBy String @map("created_by") @db.Uuid
+ revision Int @default(1)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+ @@unique([employeeId,year,category])
+ @@map("leave_allowances")
 }

@@ -7,9 +7,12 @@ import { EmployeeHeader } from "@/components/people/employee-header";
 import { RateForm, RateHistory } from "@/components/pay/compensation";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
+import { PayoutCard } from "@/components/pay/payout";
+import { payoutData } from "@/features/pay/payout";
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
-  const identity = await getIdentity(), id = (await params).id, data = await pageResult(rateHistory(identity, id)), profile = await pageResult(employeeProfile(identity, id));
+  const identity = await getIdentity(), id = (await params).id, data = await pageResult(rateHistory(identity, id)), profile = await pageResult(employeeProfile(identity, id)), payout = await pageResult(payoutData(identity, id));
   return <><EmployeeHeader employee={profile} title="Compensation" />
     <Card><CardHeader actions={<Dialog variant="default" trigger={<><Plus size={16} aria-hidden="true" />Add terms</>} title="Add compensation terms" description={`Amounts in ${data.currency}. Monthly salary prorates by calendar day; approved overtime is paid at the individual overtime hourly rate.`} size="lg"><RateForm data={data} /></Dialog>}><CardTitle>Compensation history</CardTitle><CardDescription>Effective-dated terms. Every version is retained; finalized earnings are never rewritten. Employees cannot change their own compensation.</CardDescription></CardHeader><CardContent><RateHistory data={data} staff /></CardContent></Card>
+    <PayoutCard employeeId={id} data={payout} />
   </>;
 }

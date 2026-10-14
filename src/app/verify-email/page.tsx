@@ -2,7 +2,7 @@ import Link from "next/link";
 import { controlAction } from "@/features/accounts/control-actions";
 import { ActionForm } from "@/components/ui/action-form";
 import { Alert } from "@/components/ui/alert";
-import { AuthFrame } from "@/components/layout/auth-frame";
+import { AuthFrame } from "@/components/layout/sign-in-frame";
 export default async function Verify({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
   const { token } = await searchParams;
   return <AuthFrame title="Verify your login email" description="Confirm that you own this address. Your login email changes and all existing sessions are signed out." footer={<Link href="/login" className="link">Back to sign in</Link>}>

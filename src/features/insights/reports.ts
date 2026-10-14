@@ -20,6 +20,7 @@ const who=[pair("employee_number","Employee ID"),pair("employee_name","Employee"
 export const columns:Record<ReportKind,ReportColumn[]>={
  employees:[...who,pair("department","Department"),pair("position","Position"),pair("status","Employment status"),pair("join_date","Join date")],
  attendance:[...who,pair("date","Date"),pair("scheduled_seconds","Scheduled seconds"),pair("required_seconds","Required seconds"),pair("actual_seconds","Worked seconds (completed)"),pair("status","Attendance status"),pair("incomplete_count","Incomplete sessions"),pair("late_seconds","Late seconds")],
+ lateness:[...who,pair("department","Department"),pair("scheduled_count","Scheduled days"),pair("late_count","Late arrivals"),pair("late_seconds","Total late seconds"),pair("absence_count","Absences"),pair("early_count","Early departures"),pair("missing_seconds","Missed scheduled seconds"),pair("actual_seconds","Worked seconds (completed)"),pair("status","Summary")],
  overtime:[...who,pair("week","Workweek starts"),pair("actual_seconds","Eligible worked seconds"),pair("threshold_seconds","Threshold seconds"),pair("potential_seconds","Potential overtime seconds"),pair("approved_seconds","Active approved seconds"),pair("status","Review status")],
  leave:[...who,pair("type","Pay type"),pair("category","Leave type"),pair("start_date","Start date"),pair("end_date","End date (inclusive)"),pair("status","Status"),pair("reviewer","Reviewer")],
  salary:[...who,pair("from","Period starts"),pair("until","Period ends (exclusive)"),pair("currency","Currency"),pair("base_amount","Base compensation"),pair("overtime_amount","Approved overtime pay"),pair("commission_amount","Approved commission"),pair("bonus_amount","Bonuses"),pair("other_amount","Other adjustments"),pair("deduction_amount","Deductions"),pair("final_amount","Final / estimated amount"),pair("status","Salary status"),pair("projection","Detail access")],
@@ -38,20 +39,28 @@ export async function reportData(identity:Identity|null,kindInput:unknown,input:
    const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1},select:{timezone:true,weekStartDay:true}}),now=await databaseNow(tx),today=localDate(now,settings.timezone);
    // Inclusive UI dates (`to`, presets) and legacy exclusive `until` resolve to one organization-local range.
    // Document expiry, like directory/leave/salary reports, is unfiltered by date unless dates are chosen.
-   const calculated=kind==="attendance"||kind==="overtime",dated=calculated||kind==="tasks";
+   const calculated=kind==="attendance"||kind==="overtime"||kind==="lateness",dated=calculated||kind==="tasks";
    const rangeInput=Object.fromEntries(Object.entries({from:v.from,until:v.until,to:v.to,date:v.date,range:v.range}).filter((e):e is [string,string]=>!!e[1]));
-   const resolved=resolveRange(rangeInput,today,{weekStartDay:settings.weekStartDay,defaultMode:kind==="overtime"?"week":dated?"today":"all",allowAll:!dated,...(calculated?{maxDays:31}:{})});
-   if(resolved.error)throw new AppError(400,"RANGE",calculated&&resolved.error.startsWith("Choose a range")?"Attendance and overtime reports allow at most 31 days.":resolved.error);
+   const resolved=resolveRange(rangeInput,today,{weekStartDay:settings.weekStartDay,defaultMode:kind==="overtime"?"week":kind==="lateness"?"month":dated?"today":"all",allowAll:!dated,...(calculated?{maxDays:31}:{})});
+   if(resolved.error)throw new AppError(400,"RANGE",calculated&&resolved.error.startsWith("Choose a range")?"Attendance, lateness and overtime reports allow at most 31 days.":resolved.error);
    const filtered=resolved.mode!=="all",from=resolved.from??today,until=resolved.until??addDays(today,1);
    const empFilter=Prisma.sql`true ${v.employeeId?Prisma.sql`AND e.employee_id=${v.employeeId}::uuid`:Prisma.empty} ${v.departmentId?Prisma.sql`AND e.department_id=${v.departmentId}::uuid`:Prisma.empty}`;
    const cte=employeeCte(today),status=v.status?Prisma.sql`AND r.status=${v.status}`:Prisma.empty;
    let records:Row[],total:number;
-   if(kind==="attendance"||kind==="overtime") {
-    const employees=await tx.$queryRaw<{employee_id:string;employee_number:string;employee_name:string}[]>(Prisma.sql`WITH ${cte} SELECT e.employee_id,e.employee_number,e.employee_name FROM employee_info e WHERE ${empFilter} ORDER BY e.employee_number,e.employee_id LIMIT 51`);
+   if(kind==="attendance"||kind==="overtime"||kind==="lateness") {
+    const employees=await tx.$queryRaw<{employee_id:string;employee_number:string;employee_name:string;department:string}[]>(Prisma.sql`WITH ${cte} SELECT e.employee_id,e.employee_number,e.employee_name,e.department FROM employee_info e WHERE ${empFilter} ORDER BY e.employee_number,e.employee_id LIMIT 51`);
     if(employees.length>50)throw new AppError(400,"REPORT_LIMIT","Select an employee or department covering at most 50 employees for calculated reports.");
     const computed:Row[]=[];
     for(const employee of employees) {
-     if(kind==="attendance") {
+     if(kind==="lateness") {
+      // One row per employee: late arrivals (beyond the grace period), absences and early departures in the range.
+      const facts=await summary(tx,employee.employee_id,from,until,now),d=facts.days,count=(f:(day:typeof d[number])=>boolean)=>d.filter(f).length;
+      const row={...employee,scheduled_count:count(x=>x.scheduledSeconds>0),late_count:count(x=>x.lateSeconds>0),late_seconds:d.reduce((n,x)=>n+x.lateSeconds,0),absence_count:d.reduce((n,x)=>n+x.absenceCount,0),early_count:count(x=>x.earlySeconds>0),missing_seconds:d.reduce((n,x)=>n+x.missingEndedSeconds,0),actual_seconds:d.reduce((n,x)=>n+x.actualSeconds,0)};
+      const flags=[...(row.late_count?["LATE"]:[]),...(row.absence_count?["ABSENT"]:[]),...(row.early_count?["EARLY"]:[])];if(!flags.length)flags.push("CLEAR");
+      if(v.status&&!flags.includes(v.status))continue;
+      if(v.days==="ACTIVE"&&!row.scheduled_count&&!row.actual_seconds)continue;
+      computed.push({...row,status:flags.join(" · ")});
+     } else if(kind==="attendance") {
       const facts=await summary(tx,employee.employee_id,from,until,now);
       for(const day of facts.days){
        const flags=[...(day.pendingCorrections?["PENDING_CORRECTION"]:[]),...(day.incompleteCount?["INCOMPLETE"]:[]),...(day.absenceCount?["ABSENT"]:[]),...(day.lateSeconds?["LATE"]:[]),...(day.earlySeconds?["EARLY"]:[])];

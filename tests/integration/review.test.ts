@@ -78,7 +78,7 @@ describe("Phase 3D corrections, exact attendance and weekly decisions",()=>{
  it("recalculates the same weekly row and records a rejection at the new revision",async()=>{
  const row=await o.calculateOvertime(hr,{employeeId:aliceId,week:"2030-01-07"});expect(row.id).toBe(reviewId);expect(row.potentialSecondsSnapshot).toBe(7200);
  await o.decideOvertime(hr,{id:row.id,revision:row.revision,decision:"REJECTED",approvedSeconds:0,comment:"No overtime approval"});expect((await o.overtimeData(alice,aliceId,"2030-01-07",true)).row?.status).toBe("REJECTED");
- await expect(o.decideOvertime(hr,{id:row.id,revision:row.revision,decision:"APPROVED",approvedSeconds:1,comment:"Stale"})).rejects.toMatchObject({code:"STALE"});
+ await expect(o.decideOvertime(hr,{id:row.id,revision:row.revision,decision:"APPROVED",approvedSeconds:1,comment:"Stale"})).rejects.toMatchObject({code:"ALREADY_REVIEWED"});
  });
  it("preserves official facts on rejection and lets employees withdraw only pending own requests",async()=>{
  const proposal={...add("2030-01-07","2030-01-07T03:00:00Z","2030-01-07T04:00:00Z"),type:"REPLACE",sessionId:firstSession};const id=await c.submitCorrection(alice,proposal);await c.decideCorrection(hr,{id,decision:"REJECTED",comment:"Insufficient evidence"});expect((await db.attendanceSession.findUniqueOrThrow({where:{id:firstSession}})).checkoutAt?.toISOString()).toBe("2030-01-07T05:00:00.000Z");
@@ -144,7 +144,8 @@ describe("Phase 3D corrections, exact attendance and weekly decisions",()=>{
  it("rejects future facts, foreign occurrence links and incomplete-week reviews",async()=>{
   await expect(c.submitCorrection(alice,add("2030-01-21","2030-01-21T11:00:00Z","2030-01-21T13:00:00Z"))).rejects.toMatchObject({code:"FUTURE_FACT"});
   const foreign=await db.scheduleSlot.findFirstOrThrow({where:{workSchedule:{employeeId:bobId}}});await expect(c.submitCorrection(alice,{...add("2030-01-14","2030-01-14T03:00:00Z","2030-01-14T04:00:00Z"),scheduleSlotId:foreign.id})).rejects.toMatchObject({status:404});
-  await expect(o.calculateOvertime(hr,{employeeId:aliceId,week:"2030-01-21"})).rejects.toMatchObject({code:"WEEK_OPEN"});
+  // The running week may be calculated (checkout does so too); a week that has not started may not.
+  await expect(o.calculateOvertime(hr,{employeeId:aliceId,week:"2030-02-04"})).rejects.toMatchObject({code:"WEEK_NOT_STARTED"});
  });
  it("requires a bounded holiday-work assignment and leaves normal holiday periods excused",async()=>{
   const schedules=await import("@/features/time/schedules"),base=await db.workSchedule.findFirstOrThrow({where:{employeeId:aliceId,supersededAt:null},include:{slots:true}}),slots=base.slots.map(({weekday,startMinute,endMinute,endDayOffset})=>({weekday,startMinute,endMinute,endDayOffset}));

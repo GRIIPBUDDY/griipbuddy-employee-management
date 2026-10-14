@@ -37,7 +37,8 @@ export async function summary(tx:Database, employeeId:string, from:string, until
    occurrences.push({required:remaining,ended,absent:ended && remaining.length>0 && !seconds(intersect(actualSource,remaining)) && !seconds(intersect(openSource,remaining))});
    if(ended)endedMissing.push(...subtract(remaining,actualSource));
    for(const r of remaining){const coverage=intersect(actualSource,[r]);if(!coverage.length)continue;
-    late.push({start:r.start,end:coverage[0].start});
+    // Arrivals within the configured grace period are not late; later arrivals count in full.
+    if(coverage[0].start-r.start>settings.lateGraceMinutes*60)late.push({start:r.start,end:coverage[0].start});
     if(ended && !seconds(intersect(openSource,[r])))early.push({start:coverage.at(-1)!.end,end:r.end});
    }
   }catch(error){if(!(error instanceof AppError))throw error;issues.push(`${date}: ${error.message}`);}

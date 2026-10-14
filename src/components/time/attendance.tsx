@@ -10,6 +10,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { checkoutAction } from "@/features/time/actions";
 import { dateKey, displayInstant, displayTime, durationLabel } from "@/features/time/dates";
 import type { sessionView, attendanceHistory } from "@/features/time/data";
+import { LiveElapsed } from "./live-elapsed";
 type Session = ReturnType<typeof sessionView>;
 export const statusLabel = (status: string) => ({ CURRENTLY_WORKING: "Currently working", COMPLETED: "Completed", INCOMPLETE: "Incomplete · currently working", UPCOMING: "Upcoming", READY: "Ready to check in", NOT_ELIGIBLE: "Not eligible to check in", VOIDED: "Voided" }[status] ?? status);
 export const hm = (seconds: number) => { const h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60); return `${h}h ${String(m).padStart(2, "0")}m`; };
@@ -19,7 +20,7 @@ export function Checkout({ session }: { session: Session }) {
 export function ActiveSession({ session, own }: { session: Session; own: boolean }) {
   return <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[#b2ddff] bg-info-soft p-4 sm:p-5">
     <div className="flex items-start gap-3"><span className="relative mt-1 flex h-3 w-3"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-info opacity-40" /><span className="relative inline-flex h-3 w-3 rounded-full bg-info" /></span>
-      <div><p className="font-semibold text-[#194185]">Currently working</p><p className="mt-0.5 text-sm text-[#1849a9]">Checked in {displayInstant(session.checkinAt, session.timezoneSnapshot)} · {hm(session.provisionalSeconds ?? 0)} elapsed at page load (provisional)</p>
+      <div><p className="font-semibold text-[#194185]">Currently working</p><p className="mt-1 text-2xl font-semibold text-[#194185]"><LiveElapsed since={session.checkinAt.toISOString()} serverNow={new Date(session.checkinAt.getTime() + (session.provisionalSeconds ?? 0) * 1000).toISOString()} /></p><p className="mt-0.5 text-sm text-[#1849a9]">Checked in {displayInstant(session.checkinAt, session.timezoneSnapshot)} · time worked updates live; the official total is set at checkout</p>
         <p className="mt-1 text-xs text-[#1849a9]">{session.incomplete ? "The scheduled period has ended and checkout is missing. Check out as soon as you finish." : own ? "Checkout stays available after the scheduled end and across midnight." : "Checkout requires an active account with operational access."}</p></div></div>
     {own && <Checkout session={session} />}
   </div>;
@@ -31,7 +32,7 @@ export function SessionList({ sessions, own = false }: { sessions: Session[]; ow
     <td className="whitespace-nowrap text-muted-foreground">{s.scheduledStartAt && s.scheduledEndAt ? `${displayTime(s.scheduledStartAt, s.timezoneSnapshot)}–${displayTime(s.scheduledEndAt, s.timezoneSnapshot)}` : "Unscheduled"}</td>
     <td><Cell2 primary={displayInstant(s.checkinAt, s.timezoneSnapshot)} secondary={s.lateSeconds > 0 ? <span className="text-warning">Late by {durationLabel(s.lateSeconds)}</span> : s.source !== "SELF" ? `Source: ${s.source.toLowerCase()}` : undefined} /></td>
     <td className="whitespace-nowrap">{s.checkoutAt ? displayInstant(s.checkoutAt, s.timezoneSnapshot) : <span className="text-warning">Missing</span>}</td>
-    <td className="num">{s.durationSeconds === null ? <span className="text-muted-foreground" title="Provisional elapsed time at page load">{hm(s.provisionalSeconds ?? 0)}*</span> : hm(s.durationSeconds)}</td>
+    <td className="num">{s.durationSeconds === null ? <span className="text-muted-foreground" title="Running time since check-in (provisional until checkout)">{s.voidedAt ? hm(s.provisionalSeconds ?? 0) : <LiveElapsed since={s.checkinAt.toISOString()} serverNow={new Date(s.checkinAt.getTime() + (s.provisionalSeconds ?? 0) * 1000).toISOString()} seconds={false} />}*</span> : hm(s.durationSeconds)}</td>
     <td><StatusBadge status={s.status} label={statusLabel(s.status)} /></td>
     {own && <td className="text-right">{!s.voidedAt && <Link className="link text-[13px]" href={`/me/corrections?sessionId=${s.id}`}>Request correction</Link>}</td>}
   </tr>)}</tbody></table></TableContainer>;

@@ -9,7 +9,7 @@ import { AppError } from "@/lib/utils/errors";
 import type { Actor,Identity } from "@/types/auth";
 import { dayStart } from "@/features/time/dates";
 import { auditQuery } from "./validation";
-const hrEntities=["task_assignments","weekly_earning_statements","shift_swap_requests","employees","employment_periods","departments","positions","work_schedules","attendance_sessions","attendance_corrections","overtime_reviews","leave_requests","employee_documents","employee_activities","performance_reviews","disciplinary_records","assets","asset_assignments","compensation_rates","salary_periods","salary_calculations","salary_adjustments","preorders"];
+const hrEntities=["task_assignments","leave_allowances","weekly_earning_statements","shift_swap_requests","employees","employment_periods","departments","positions","work_schedules","attendance_sessions","attendance_corrections","overtime_reviews","leave_requests","employee_documents","employee_activities","performance_reviews","disciplinary_records","assets","asset_assignments","compensation_rates","salary_periods","salary_calculations","salary_adjustments","preorders"];
 export function auditPermission(actor:Actor) {
  if(actor.role==="ADMIN")return Prisma.sql`true`;
  return Prisma.sql`((a.entity='users' AND a.action='ACCOUNT_STATUS_CHANGED' AND EXISTS (SELECT 1 FROM users u WHERE u.id::text=a.entity_id AND u.role='EMPLOYEE')) OR a.entity IN (${Prisma.join(hrEntities)})) AND a.action NOT IN ('EMPLOYEE_COMMISSION_FEATURE_CHANGED','COMMISSION_ELIGIBILITY_CHANGED') AND

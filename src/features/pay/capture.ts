@@ -5,6 +5,7 @@ import { summary,weekCalculation } from "@/features/review/summary";
 import { addDays,dateKey,dateValue,dayStart } from "@/features/time/dates";
 import { localWeek,intersect,tail,seconds,windowFor,type Interval } from "@/features/review/calculation";
 import type { PayInput,PayDay,RateFact } from "./engine";
+export const attendanceMethod=(method:string)=>method==="WEEKLY_ATTENDANCE" || method==="MONTHLY_ATTENDANCE";
 export async function payrollRoster(tx:Database,p:SalaryPeriod) {
  const [stints,adjustments,orders,existing]=await Promise.all([
   tx.employmentPeriod.findMany({where:{startDate:{lt:p.endDate},OR:[{endDate:null},{endDate:{gt:p.startDate}}]},select:{employeeId:true}}),
@@ -43,12 +44,12 @@ export async function captureEmployee(tx:Database,p:SalaryPeriod,employeeId:stri
   if(!rate)blockers.push(`Compensation coverage missing or overlapping on ${date}`);
   const day=windowFor(date,1,zone),actual=intersect(totals.actual,[day]),scheduled=intersect(totals.scheduled,[day]),paidAbsence=intersect(totals.paidAbsence,[day]),approvedOvertime=intersect(approved,[day]);
   if(rate && rate.currency!==p.currency)blockers.push(`Currency mismatch on ${date}`);
-  if(p.calculationMethod==="WEEKLY_ATTENDANCE" && rate && seconds(approvedOvertime)>0 && rate.overtimeHourlyRate==null)blockers.push(`Overtime hourly rate missing on ${date}`);
-  if(p.calculationMethod!=="WEEKLY_ATTENDANCE" && rate && rate.payType!=="HOURLY" && seconds(approvedOvertime)>0 && rate.overtimeHourlyEquivalent===null)blockers.push(`Agreed overtime hourly equivalent missing on ${date}`);
-  if(p.calculationMethod!=="WEEKLY_ATTENDANCE" && rate?.payType==="DAILY" && !seconds(scheduled) && seconds(actual) && !adjustments.some(a=>a.status==="APPROVED" && a.type==="OTHER"))blockers.push(`Daily unscheduled work on ${date} needs a reviewed manual adjustment`);
+  if(attendanceMethod(p.calculationMethod) && rate && seconds(approvedOvertime)>0 && rate.overtimeHourlyRate==null)blockers.push(`Overtime hourly rate missing on ${date}`);
+  if(!attendanceMethod(p.calculationMethod) && rate && rate.payType!=="HOURLY" && seconds(approvedOvertime)>0 && rate.overtimeHourlyEquivalent===null)blockers.push(`Agreed overtime hourly equivalent missing on ${date}`);
+  if(!attendanceMethod(p.calculationMethod) && rate?.payType==="DAILY" && !seconds(scheduled) && seconds(actual) && !adjustments.some(a=>a.status==="APPROVED" && a.type==="OTHER"))blockers.push(`Daily unscheduled work on ${date} needs a reviewed manual adjustment`);
   days.push({date,employmentPeriodId:stint.id,rate,actual,scheduled,paidAbsence,approvedOvertime});
  }
- if(p.calculationMethod==="WEEKLY_ATTENDANCE")for(const rate of rateFacts){if(days.some(d=>d.rate?.id===rate.id) && !days.filter(d=>d.rate?.id===rate.id).some(d=>seconds(d.scheduled)>0))blockers.push(`Zero planned payable hours for rate ${rate.id}`);}
+ if(attendanceMethod(p.calculationMethod))for(const rate of rateFacts){if(days.some(d=>d.rate?.id===rate.id) && !days.filter(d=>d.rate?.id===rate.id).some(d=>seconds(d.scheduled)>0))blockers.push(`Zero planned payable hours for rate ${rate.id}`);}
  return {employeeId,period:{id:p.id,from,until,timezone:zone,currency:p.currency,inputRevision:p.inputRevision,method:p.calculationMethod},days,
   sources:{...totals.sourceFacts,compensation:rateFacts,employment:stints.map(s=>({id:s.id,startDate:dateKey(s.startDate),endDate:s.endDate?dateKey(s.endDate):null,revision:s.revision})),overtime:weeks},
   commissions:commissions.filter(c=>c.status!=="PENDING").map(c=>({id:c.id,reference:c.reference,amount:c.commissionAmount.toFixed(2),revision:c.revision,orderAt:c.orderAt.toISOString()})),

@@ -13,6 +13,7 @@ import { dateValue,localDate,dayStart } from "@/features/time/dates";
 import { resolveRange } from "@/lib/utils/date-range";
 import { notify } from "@/features/review/notifications";
 import { timeEvent } from "@/features/time/schedules";
+import { requireModule } from "@/features/settings/config";
 const fields=z.object({title:z.string().trim().min(1).max(150),description:z.string().trim().max(5000),assignedDate:dateSchema,dueDate:dateSchema.nullable().default(null),priority:z.enum(["LOW","NORMAL","HIGH"]).default("NORMAL")}).refine(v=>!v.dueDate||v.dueDate>=v.assignedDate,"Due date must follow assignment date.");
 const assignSchema=fields.safeExtend({employeeIds:z.array(uuidSchema).min(1).max(100).refine(v=>new Set(v).size===v.length,"Choose each employee once."),operationKey:uuidSchema}).strict();
 const progressSchema=z.object({id:uuidSchema,revision:z.number().int().positive(),status:z.enum(["IN_PROGRESS","COMPLETED"]),note:z.string().trim().max(2000).default("")}).strict();
@@ -20,7 +21,7 @@ const editSchema=fields.safeExtend({id:uuidSchema,revision:z.number().int().posi
 const optionalText=(schema:z.ZodType<string>)=>z.union([schema,z.literal("")]).optional().transform(v=>v||undefined);
 // Without date parameters the list covers all dates, so older open or overdue tasks are never hidden.
 const filterSchema=z.object({from:optionalText(dateSchema),until:optionalText(dateSchema),to:optionalText(dateSchema),date:optionalText(dateSchema),range:z.enum(["today","date","week","month","custom","all",""]).optional().transform(v=>v||undefined),dateBy:z.enum(["ASSIGNED","DUE","COMPLETED"]).default("ASSIGNED"),employeeId:optionalText(uuidSchema),status:z.enum(["ASSIGNED","IN_PROGRESS","COMPLETED","OPEN","OVERDUE",""]).optional().transform(v=>v||undefined),search:z.string().trim().max(150).default(""),page:z.coerce.number().int().min(1).max(10000).default(1)}).strict();
-export async function assignTasks(identity:Identity|null,input:unknown){
+export async function assignTasks(identity:Identity|null,input:unknown){await requireModule("tasks");
  await securityBoundary(identity,async a=>assertRole(a,["ADMIN","HR_MANAGER"]));const v=validated(assignSchema,input);
  return authorizedMutation(identity,async(a,tx)=>{
   assertRole(a,["ADMIN","HR_MANAGER"]);const ids=[...v.employeeIds].sort(),old=await tx.taskAssignment.findMany({where:{operationKey:v.operationKey},orderBy:{employeeId:"asc"}});
@@ -34,7 +35,7 @@ export async function assignTasks(identity:Identity|null,input:unknown){
   }return created;
  });
 }
-export async function updateTaskProgress(identity:Identity|null,input:unknown){
+export async function updateTaskProgress(identity:Identity|null,input:unknown){await requireModule("tasks");
  await securityBoundary(identity,async a=>assertOperational(a));const v=validated(progressSchema,input);
  return authorizedMutation(identity,async(a,tx)=>{
   assertOperational(a);const r=await tx.taskAssignment.findFirst({where:{id:v.id,employeeId:a.employeeId??"00000000-0000-0000-0000-000000000000"}});if(!r)throw new AppError(404,"NOT_FOUND","Task not found.");
@@ -47,7 +48,7 @@ export async function updateTaskProgress(identity:Identity|null,input:unknown){
   if(v.status==="COMPLETED")await notify(tx,r.employeeId,"STAFF_TASK_COMPLETED","task_assignments",r.id,`task-done:${r.id}`,"An assigned task was completed.",true);return r.id;
  });
 }
-export async function editTask(identity:Identity|null,input:unknown){
+export async function editTask(identity:Identity|null,input:unknown){await requireModule("tasks");
  await securityBoundary(identity,async a=>assertRole(a,["ADMIN","HR_MANAGER"]));const v=validated(editSchema,input);
  return authorizedMutation(identity,async(a,tx)=>{
   assertRole(a,["ADMIN","HR_MANAGER"]);const r=await tx.taskAssignment.findUnique({where:{id:v.id}});if(!r)throw new AppError(404,"NOT_FOUND","Task not found.");if(r.revision!==v.revision || r.status==="COMPLETED")throw new AppError(409,"STALE","Completed assignments are retained. Refresh pending tasks.");
@@ -56,7 +57,7 @@ export async function editTask(identity:Identity|null,input:unknown){
   await notify(tx,r.employeeId,"TASK_CHANGED","task_assignments",r.id,`task-update:${r.id}:${r.revision+1}`,"Your task assignment was updated.");
  });
 }
-export async function taskData(identity:Identity|null,input:unknown={},own=false){return securityBoundary(identity,async a=>{
+export async function taskData(identity:Identity|null,input:unknown={},own=false){await requireModule("tasks");return securityBoundary(identity,async a=>{
  if(!own)assertRole(a,["ADMIN","HR_MANAGER"]);const v=validated(filterSchema,input),settings=await db.organizationSettings.findUniqueOrThrow({where:{id:1}}),today=localDate(await databaseNow(db),settings.timezone);
  const r=resolveRange(Object.fromEntries(Object.entries({from:v.from,until:v.until,to:v.to,date:v.date,range:v.range}).filter((e):e is [string,string]=>!!e[1])),today,{weekStartDay:settings.weekStartDay,defaultMode:"all",allowAll:true});
  if(r.error)throw new AppError(400,"RANGE",r.error);

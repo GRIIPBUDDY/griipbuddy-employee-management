@@ -14,8 +14,9 @@ async function sweep(page: Page) {
 test("every Admin Panel section renders for an administrator", async ({ page }) => {
   await signedIn(page, "admin");
   const links = await sweep(page);
-  for (const expected of ["/manage/employees", "/manage/departments", "/manage/positions", "/manage/documents", "/manage/work-records", "/manage/accounts", "/manage/schedule", "/manage/attendance", "/manage/corrections", "/manage/overtime", "/manage/shift-swaps", "/manage/tasks", "/manage/leave", "/manage/weekly-earnings", "/manage/salary", "/manage/adjustments", "/manage/commissions", "/manage/performance", "/manage/warnings", "/manage/assets", "/manage/reports", "/manage/audit", "/manage/settings"]) expect(links).toContain(expected);
-  for (const kind of ["employees", "attendance", "overtime", "leave", "salary", "commissions", "documents", "tasks"]) { await page.goto(`/manage/reports/${kind}`); await expect(page.getByRole("heading", { level: 1 })).toContainText("report"); }
+  for (const expected of ["/manage/employees", "/manage/departments", "/manage/positions", "/manage/documents", "/manage/work-records", "/manage/accounts", "/manage/schedule", "/manage/attendance", "/manage/corrections", "/manage/overtime", "/manage/shift-swaps", "/manage/tasks", "/manage/leave", "/manage/salary", "/manage/adjustments", "/manage/commissions", "/manage/performance", "/manage/warnings", "/manage/assets", "/manage/reports", "/manage/audit", "/manage/settings"]) expect(links).toContain(expected);
+  expect(links).not.toContain("/manage/weekly-earnings"); // monthly pay: weekly statements are off by default
+  for (const kind of ["employees", "attendance", "lateness", "overtime", "leave", "salary", "commissions", "documents", "tasks"]) { await page.goto(`/manage/reports/${kind}`); await expect(page.getByRole("heading", { level: 1 })).toContainText("report"); }
 });
 test("every employee portal section renders, with only permitted features", async ({ page }) => {
   await signedIn(page, "employee");

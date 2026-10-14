@@ -11,20 +11,22 @@ import type { assetData, assignmentData } from "@/features/people-operations/ass
 import type { recordOptions } from "@/features/people-operations/records";
 import { localDate } from "@/features/time/dates";
 import { TextArea } from "./records";
+import { optionItems, optionLabels } from "@/features/settings/config";
 type AssetRow = Awaited<ReturnType<typeof assetData>>["records"][number];
-export const assetTypes = ["LAPTOP", "PHONE", "CAMERA", "SIM", "ACCESS_CARD", "OTHER"];
 const words = (v: string) => v[0] + v.slice(1).toLowerCase().replaceAll("_", " ");
-function AssetFields({ r }: { r?: AssetRow }) {
-  return <><FieldGrid><Field label="Asset ID" name="assetCode" required maxLength={50} defaultValue={r?.assetCode} hint="Unique inventory code." /><SelectField label="Type" name="type" defaultValue={r?.type ?? "LAPTOP"}>{assetTypes.map(t => <option key={t} value={t}>{words(t)}</option>)}</SelectField></FieldGrid>
+async function AssetFields({ r }: { r?: AssetRow }) {
+  const types = (await optionItems("ASSET_TYPE", undefined, true)).filter(t => t.isActive || t.code === r?.type);
+  return <><FieldGrid><Field label="Asset ID" name="assetCode" required maxLength={50} defaultValue={r?.assetCode} hint="Unique inventory code." /><SelectField label="Type" name="type" defaultValue={r?.type ?? types[0]?.code}>{types.map(t => <option key={t.code} value={t.code}>{t.label}</option>)}</SelectField></FieldGrid>
     <Field label="Name / description" name="name" required maxLength={150} defaultValue={r?.name} />
     <FieldGrid columns={3}><Field label="Serial number" name="serialNumber" maxLength={100} defaultValue={r?.serialNumber} /><Field label="Condition" name="condition" required maxLength={200} defaultValue={r?.condition} /><SelectField label="Inventory status" name="status" defaultValue={r?.status === "ASSIGNED" ? "AVAILABLE" : r?.status ?? "AVAILABLE"}>{["AVAILABLE", "RETIRED", "LOST"].map(t => <option key={t} value={t}>{words(t)}</option>)}</SelectField></FieldGrid>
     <TextArea label="Private inventory notes" name="notes" value={r?.notes} /></>;
 }
 export function NewAssetButton() { return <Dialog variant="default" trigger={<><Plus size={16} aria-hidden="true" />Add asset</>} title="Add company asset"><ActionForm action={peopleOperationsAction} submitLabel="Add asset"><Hidden values={{ kind: "assetCreate" }} /><AssetFields /></ActionForm></Dialog>; }
-export function AssetRegister({ data, options, today }: { data: Awaited<ReturnType<typeof assetData>>; options: Awaited<ReturnType<typeof recordOptions>>; today: string }) {
+export async function AssetRegister({ data, options, today }: { data: Awaited<ReturnType<typeof assetData>>; options: Awaited<ReturnType<typeof recordOptions>>; today: string }) {
+  const labels = await optionLabels("ASSET_TYPE");
   if (!data.records.length) return <EmptyState icon={Boxes} title="No assets match" description="Add laptops, phones, access cards and other company equipment." />;
   return <TableContainer label="Asset register"><table className="data-table min-w-[860px]"><thead><tr><th>Asset</th><th>Type</th><th>Condition</th><th>Status</th><th>Holder</th><th className="text-right">Actions</th></tr></thead><tbody>{data.records.map(r => <tr key={r.id}>
-    <td><Cell2 primary={`${r.assetCode} · ${r.name}`} secondary={r.serialNumber ? `Serial ${r.serialNumber}` : "No serial number"} /></td><td>{words(r.type)}</td><td className="text-[13px]">{r.condition}</td>
+    <td><Cell2 primary={`${r.assetCode} · ${r.name}`} secondary={r.serialNumber ? `Serial ${r.serialNumber}` : "No serial number"} /></td><td>{labels[r.type] ?? words(r.type)}</td><td className="text-[13px]">{r.condition}</td>
     <td><StatusBadge status={r.displayStatus === "ASSIGNED" ? "INFO" : r.displayStatus} tone={r.displayStatus === "ASSIGNED" ? "info" : undefined} label={words(r.displayStatus)} /></td>
     <td className="text-[13px]">{r.holder ? <Cell2 primary={r.holder.employee.legalName} secondary={r.holder.outstandingOffboarding ? "Return outstanding (left or inactive)" : "Return outstanding"} /> : <span className="text-muted-foreground">—</span>}</td>
     <td><div className="flex justify-end gap-1">

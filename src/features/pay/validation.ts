@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { uuidSchema,dateSchema } from "@/lib/validation/schemas";
+import { uuidSchema,dateSchema,optionCode } from "@/lib/validation/schemas";
 export const amountSchema=z.string().regex(/^\d{1,12}(\.\d{1,4})?$/,"Use a nonnegative decimal amount, with up to four decimal places.");
 export const signed=z.string().regex(/^-?\d{1,12}(\.\d{1,2})?$/,"Use a signed amount with up to two decimals.");
 const reason=z.string().trim().min(1).max(500);
@@ -13,7 +13,7 @@ export const rateSchema=z.object({employeeId:uuidSchema,employmentPeriodId:uuidS
 export const periodSchema=z.object({month:z.string().regex(/^\d{4}-\d{2}$/)}).strict();
 export const calculationSchema=z.object({periodId:uuidSchema,revision:z.number().int().positive()}).strict();
 export const transitionSchema=calculationSchema.extend({status:z.enum(["REVIEWED","APPROVED","FINALIZED"])}).strict();
-export const adjustmentSchema=z.object({employeeId:uuidSchema,periodId:uuidSchema,type:z.enum(["BONUS","ALLOWANCE","DEDUCTION","OTHER"]),amount:signed,reason,operationKey:uuidSchema,earningWeekDate:dateSchema.optional()}).strict().superRefine((v,c)=>{if(["BONUS","ALLOWANCE","DEDUCTION"].includes(v.type) && !/^[^-]/.test(v.amount))c.addIssue({code:"custom",message:"Bonuses, allowances and deductions use nonnegative amounts."});});
+export const adjustmentSchema=z.object({employeeId:uuidSchema,periodId:uuidSchema,type:optionCode,amount:signed,reason,operationKey:uuidSchema,earningWeekDate:dateSchema.optional()}).strict();
 export const decisionSchema=z.object({id:uuidSchema,revision:z.number().int().positive(),decision:z.enum(["APPROVED","REJECTED"]),comment:z.string().trim().max(500)}).strict();
 export const ownPreorderSchema=z.object({reference:z.string().trim().toUpperCase().min(1).max(100),orderValue:z.union([amountSchema,z.literal("")]).optional(),reason}).strict();
 export const staffPreorderSchema=ownPreorderSchema.extend({employeeId:uuidSchema,orderAt:z.iso.datetime({offset:true}),eligibilityEvidenceId:uuidSchema,commissionType:z.enum(["FIXED","PERCENT"]),commissionValue:amountSchema,id:optionalId,revision:z.number().int().positive().optional()}).strict();

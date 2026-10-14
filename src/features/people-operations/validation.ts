@@ -1,5 +1,5 @@
 import {z} from "zod";
-import {dateSchema,uuidSchema} from "@/lib/validation/schemas";
+import {dateSchema,uuidSchema,optionCode} from "@/lib/validation/schemas";
 const short=z.string().trim().min(1).max(500),text=z.string().trim().max(2000).default("");
 const rating=z.number().int().min(1).max(5).nullable().default(null);
 const optionalId=z.union([uuidSchema,z.literal("")]).default("").transform(v=>v||null);
@@ -11,7 +11,7 @@ export const performanceEditSchema=z.object({id:uuidSchema,revision:z.number().i
 export const recordCommandSchema=z.object({id:uuidSchema,revision:z.number().int().positive(),reason:short.optional()}).strict();
 export const warningSchema=z.object({employeeId:uuidSchema,employmentPeriodId:uuidSchema,issueDate:dateSchema,severity:z.enum(["NOTICE","WARNING","SERIOUS_WARNING","FINAL_WARNING"]),reason:short,description:text,actionTaken:text,staffNotes:text,attachmentDocumentId:optionalId,employeeVisible:z.boolean().default(false),acknowledgementRequested:z.boolean().default(false)}).strict();
 export const warningEditSchema=z.object({id:uuidSchema,revision:z.number().int().positive(),data:warningSchema,correctionReason:short.optional()}).strict();
-export const assetSchema=z.object({assetCode:z.string().trim().min(1).max(50).transform(v=>v.toUpperCase()),type:z.enum(["LAPTOP","PHONE","CAMERA","SIM","ACCESS_CARD","OTHER"]),name:z.string().trim().min(1).max(150),serialNumber:z.string().trim().max(100).default(""),condition:z.string().trim().min(1).max(200),status:z.enum(["AVAILABLE","RETIRED","LOST"]).default("AVAILABLE"),notes:text}).strict();
+export const assetSchema=z.object({assetCode:z.string().trim().min(1).max(50).transform(v=>v.toUpperCase()),type:optionCode,name:z.string().trim().min(1).max(150),serialNumber:z.string().trim().max(100).default(""),condition:z.string().trim().min(1).max(200),status:z.enum(["AVAILABLE","RETIRED","LOST"]).default("AVAILABLE"),notes:text}).strict();
 export const assetEditSchema=z.object({id:uuidSchema,revision:z.number().int().positive(),data:assetSchema,reason:short}).strict();
 export const assetListSchema=z.object({id:uuidSchema.optional(),employeeId:uuidSchema.optional(),type:assetSchema.shape.type.optional(),status:z.enum(["AVAILABLE","ASSIGNED","RETIRED","LOST"]).optional(),page:z.coerce.number().int().min(1).max(10000).default(1)}).strict();
 export const assignmentSchema=z.object({assetId:uuidSchema,employeeId:uuidSchema,assignedDate:dateSchema,conditionOut:z.string().trim().min(1).max(200),notes:text}).strict();
