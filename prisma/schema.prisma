@@ -787,3 +787,52 @@ model LeaveAllowance {
  @@unique([employeeId,year,category])
  @@map("leave_allowances")
 }
+model IncidentRecord {
+ id String @id @default(uuid()) @db.Uuid
+ number Int @unique
+ employeeId String @map("employee_id") @db.Uuid
+ kind String @db.VarChar(10)
+ category String @db.VarChar(30)
+ title String @db.VarChar(150)
+ description String @db.VarChar(5000)
+ impact String @default("") @db.VarChar(2000)
+ severity String? @db.VarChar(10)
+ occurredOn DateTime @map("occurred_on") @db.Date
+ occurredAt DateTime? @map("occurred_at") @db.Timestamptz(3)
+ status String @default("DRAFT") @db.VarChar(20)
+ staffNotes String @default("") @map("staff_notes") @db.VarChar(2000)
+ evidenceDocumentId String? @map("evidence_document_id") @db.Uuid
+ relatedTaskId String? @map("related_task_id") @db.Uuid
+ relatedSessionId String? @map("related_session_id") @db.Uuid
+ relatedActivityId String? @map("related_activity_id") @db.Uuid
+ relatedWarningId String? @map("related_warning_id") @db.Uuid
+ relatedReviewId String? @map("related_review_id") @db.Uuid
+ employeeVisible Boolean @default(false) @map("employee_visible")
+ responseRequested Boolean @default(false) @map("response_requested")
+ acknowledgedAt DateTime? @map("acknowledged_at") @db.Timestamptz(3)
+ acknowledgedBy String? @map("acknowledged_by") @db.Uuid
+ employeeResponse String? @map("employee_response") @db.VarChar(2000)
+ employeeDisputes Boolean? @map("employee_disputes")
+ respondedAt DateTime? @map("responded_at") @db.Timestamptz(3)
+ respondedBy String? @map("responded_by") @db.Uuid
+ reviewNote String? @map("review_note") @db.VarChar(2000)
+ reviewedBy String? @map("reviewed_by") @db.Uuid
+ reviewedAt DateTime? @map("reviewed_at") @db.Timestamptz(3)
+ correctiveAction String? @map("corrective_action") @db.VarChar(30)
+ correctiveNote String? @map("corrective_note") @db.VarChar(2000)
+ followUpOn DateTime? @map("follow_up_on") @db.Date
+ correctiveCompletedAt DateTime? @map("corrective_completed_at") @db.Timestamptz(3)
+ correctiveCompletedBy String? @map("corrective_completed_by") @db.Uuid
+ completionNote String? @map("completion_note") @db.VarChar(2000)
+ resolution String? @db.VarChar(2000)
+ resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(3)
+ resolvedBy String? @map("resolved_by") @db.Uuid
+ reportedBy String @map("reported_by") @db.Uuid
+ revision Int @default(1)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+ @@unique([id,employeeId])
+ @@index([employeeId,occurredOn])
+ @@index([status,occurredOn])
+ @@map("incident_records")
+}

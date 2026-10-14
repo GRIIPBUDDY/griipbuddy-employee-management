@@ -27,6 +27,10 @@ async function sourceHref(client:Database,actor:Actor,row:{eventType:string,sour
  if(row.sourceType==="task_assignments")return await client.taskAssignment.findFirst({where,select:{id:true}})?`${prefix}/tasks`:null;
  if(row.sourceType==="performance_reviews")return await client.performanceReview.findFirst({where:{...where,...(!staff?{publishedAt:{not:null},employeeVisible:true}:{})},select:{id:true}})?`${prefix}/performance?id=${row.sourceId}`:null;
  if(row.sourceType==="disciplinary_records")return await client.disciplinaryRecord.findFirst({where:{...where,...(!staff?{publishedAt:{not:null},employeeVisible:true,revokedAt:null}:{})},select:{id:true}})?`${prefix}/warnings?id=${row.sourceId}`:null;
+ if(row.sourceType==="incident_records") {
+  if(staff && actor.employeeId===row.employeeId && actor.role==="HR_MANAGER")return null;
+  return await client.incidentRecord.findFirst({where:{...where,...(!staff?{employeeVisible:true}:{})},select:{id:true}})?(staff?`/manage/incidents/${row.sourceId}`:`/me/incidents?id=${row.sourceId}`):null;
+ }
  if(row.sourceType==="asset_assignments")return await client.assetAssignment.findFirst({where,select:{id:true}})?`${prefix}/assets?assignmentId=${row.sourceId}`:null;
  if(row.sourceType==="preorders") {
   if(staff?!(actor.role==="ADMIN" || actor.role==="HR_MANAGER" && actor.canManageCommissions):!actor.preorderCommissionEnabled)return null;

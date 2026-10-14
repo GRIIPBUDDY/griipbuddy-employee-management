@@ -13,7 +13,7 @@ vi.mock("@/lib/auth/request", () => ({ assertMutationOrigin: async () => {}, get
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const identity = (userId: string): Identity => { const issuedAt = Date.now(); return { userId, sessionVersion: 1, issuedAt, absoluteExpiresAt: issuedAt + 43200000 }; };
 const at = (value: string) => { now = new Date(value); };
-const allModules = { tasks: true, shiftSwaps: true, commissions: true, performance: true, warnings: true, assets: true, workRecords: true, weeklyEarnings: false };
+const allModules = { tasks: true, shiftSwaps: true, commissions: true, performance: true, warnings: true, incidents: true, assets: true, workRecords: true, weeklyEarnings: false };
 async function attend(date: string, from = "02:00", until = "14:00") {
   const corrections = await import("@/features/review/corrections");
   for (const [start, end] of from === "02:00" && until === "14:00" ? [["02:00", "06:00"], ["10:00", "14:00"]] : [[from, until]]) {
@@ -37,7 +37,7 @@ beforeAll(async () => {
 afterAll(async () => { vi.restoreAllMocks(); await db?.$disconnect(); await database?.stop(); });
 it("the migration seeds every previously fixed list and starts with monthly pay and weekly statements off", async () => {
   const lists = await db.optionItem.groupBy({ by: ["list"], _count: true });
-  expect(Object.fromEntries(lists.map(l => [l.list, l._count]))).toEqual({ LEAVE_CATEGORY: 6, ASSET_TYPE: 6, DOCUMENT_TYPE: 7, EMPLOYMENT_TYPE: 5, ADJUSTMENT_CATEGORY: 4 });
+  expect(Object.fromEntries(lists.map(l => [l.list, l._count]))).toEqual({ LEAVE_CATEGORY: 6, ASSET_TYPE: 6, DOCUMENT_TYPE: 8, EMPLOYMENT_TYPE: 5, ADJUSTMENT_CATEGORY: 4 });
   const config = await import("@/features/settings/config");
   expect((await config.enabledModules()).weeklyEarnings).toBe(false);
   expect((await db.optionItem.findUniqueOrThrow({ where: { list_code: { list: "LEAVE_CATEGORY", code: "UNPAID" } } })).attributes).toMatchObject({ paid: false });

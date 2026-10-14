@@ -15,6 +15,6 @@ export function EmployeeHeader({ employee, title, description, actions }: { empl
       title={employee.legalName} description={description}
       meta={<><span className="font-medium text-foreground">{employee.employeeNumber}</span>{employee.employmentStatus && <StatusBadge status={employee.employmentStatus} label={`Employment: ${employee.employmentStatus.toLowerCase()}`} />}{employee.user && employee.user.accountStatus !== "ACTIVE" && <StatusBadge status={employee.user.accountStatus} />}{employee.user && employee.user.role !== "EMPLOYEE" && <StatusBadge status="INFO" tone="info" label={employee.user.role === "ADMIN" ? "Administrator" : "HR / Manager"} />}</>}
       actions={actions ?? <Button asChild variant="outline"><Link href={`${base}/edit`}><Pencil size={15} aria-hidden="true" />Edit details</Link></Button>} />
-    <TabNav label="Employee sections" items={[{ label: "Overview", href: base, exact: true }, { label: "Schedule", href: `${base}/schedule` }, { label: "Attendance", href: `${base}/attendance` }, { label: "Compensation", href: `${base}/compensation` }, { label: "Edit", href: `${base}/edit` }]} />
+    <TabNav label="Employee sections" items={[{ label: "Overview", href: base, exact: true }, { label: "Schedule", href: `${base}/schedule` }, { label: "Attendance", href: `${base}/attendance` }, { label: "Compensation", href: `${base}/compensation` }, { label: "Incidents", href: `${base}/incidents` }, { label: "Edit", href: `${base}/edit` }]} />
   </div>;
 }

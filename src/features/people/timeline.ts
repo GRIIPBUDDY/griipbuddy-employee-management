@@ -39,6 +39,9 @@ export async function employeeTimeline(identity: Identity | null, employeeId: un
         if(!await db.performanceReview.findFirst({where:{id:record.sourceId!,employeeId:id,...(personal?{publishedAt:{not:null},employeeVisible:true}:{})},select:{id:true}}))continue;
       } else if(record.sourceType==="disciplinary_records") {
         if(!await db.disciplinaryRecord.findFirst({where:{id:record.sourceId!,employeeId:id,...(personal?publishedWarning:{})},select:{id:true}}))continue;
+      } else if(record.sourceType==="incident_records") {
+        if(personal?false:actor.role==="HR_MANAGER"&&actor.employeeId===id)continue;
+        if(!await db.incidentRecord.findFirst({where:{id:record.sourceId!,employeeId:id,...(personal?{employeeVisible:true}:{})},select:{id:true}}))continue;
       } else if(record.sourceType==="asset_assignments") {
         if(!await db.assetAssignment.findFirst({where:{id:record.sourceId!,employeeId:id},select:{id:true}}))continue;
       } else if (record.sourceType === "employment_periods") {
@@ -62,7 +65,7 @@ export async function employeeTimeline(identity: Identity | null, employeeId: un
       } else if (record.sourceType !== null) continue;
       const { creator, ...safe } = record;
       const modules:Record<string,string>={shift_swap_requests:"shift-swaps",task_assignments:"tasks",leave_requests:"leave",performance_reviews:"performance",disciplinary_records:"warnings",asset_assignments:"assets"};
-      const module=record.sourceType?modules[record.sourceType]:undefined,href=module?`/${personal?"me":"manage"}/${module}?${module==="assets"?"assignmentId":"id"}=${record.sourceId}`:null;
+      const module=record.sourceType?modules[record.sourceType]:undefined,href=record.sourceType==="incident_records"?(personal?`/me/incidents?id=${record.sourceId}`:`/manage/incidents/${record.sourceId}`):module?`/${personal?"me":"manage"}/${module}?${module==="assets"?"assignmentId":"id"}=${record.sourceId}`:null;
       visible.push({ ...safe, href, creatorName: creator?.employee?.legalName ?? creator?.displayName ?? "Staff", manual: record.sourceType === null });
     }
     return visible;
