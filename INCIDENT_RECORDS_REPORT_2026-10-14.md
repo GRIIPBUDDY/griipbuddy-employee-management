@@ -40,3 +40,12 @@ Existing audit log: created, edited, submitted, review decision, visibility chan
 ## Formula and production confirmations
 - Salary, overtime, attendance and compensation formulas were **not changed**; incidents never write to pay, compensation, commission or account-status data (asserted by tests).
 - **Production was not accessed or modified** during this change. The migration and code exist only in the local repository and local test databases.
+
+## Production deployment (after the owner's explicit approval) — PASSED
+The implementation and verification above were local only. On the owner's later instruction the release `c0b91a5d7d0e` was deployed to `griipbuddy.cloud` (project `griipbuddy-employee`):
+- Pre-release backup `20261014-pre-c0b91a5` (34 tables, quiescent) with encrypted off-server copy verified (`d687c26582281e0e`).
+- Restore drill in an isolated drill project: 34/34 table digests equal live; migration `202610150012` rehearsed: 33/33 existing tables identical; new image ready; previous image also runs on the migrated schema.
+- Cutover backup `20261014-cutover-c0b91a5` (app stopped), encrypted off-server copy verified (`4541b2581e125479`); migration applied atomically (11 → 12); runtime grants applied; 33 existing tables identical after migration and after app start; database container and documents volume unchanged.
+- Live: readiness ready, sign-in 200, incident pages require sign-in, logs clean, notification timer active, all other hosted sites unchanged. Row counts across every snapshot since 13 Oct: no table ever lost rows.
+- Rollback: application-only (previous image `fdfbd740…`, also saved at `/srv/griipbuddy-config/images/griipbuddy-employee-3b1f72467f13.tar`); the new table can stay in place.
+- Note: the GitHub repository is public by the owner's decision (it was switched from private on 14 Oct ~02:17 UTC); a scan found no secrets in its files or history.
