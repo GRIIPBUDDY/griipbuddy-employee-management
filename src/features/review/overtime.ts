@@ -10,7 +10,7 @@ import { databaseNow } from "@/features/time/clock";
 import { addDays, dateKey, dateValue, dayStart, localDate } from "@/features/time/dates";
 import type { Actor,Identity } from "@/types/auth";
 import { weekCalculation } from "./summary";
-import { localWeek, policies, tail } from "./calculation";
+import { localWeek, policies, tail, interval, subtract, seconds } from "./calculation";
 import { overtimeCalculationSchema,overtimeDecisionSchema,policySchema,overtimeQueueSchema } from "./validation";
 import { notify } from "./notifications";
 export function reviewer(actor:Actor,employeeId:string) {
@@ -46,13 +46,18 @@ export async function calculateOvertimeInTransaction(tx:Database,actor:Actor,emp
  const row=old ? await tx.overtimeReview.update({where:{id:old.id},data:{...data,revision:{increment:1}}}) : await tx.overtimeReview.create({data:{employeeId,weekStartDate:dateValue(input.week),...data}});
  await audit({actorUserId:actor.userId,employeeId,action:old?"OVERTIME_RECALCULATED":"OVERTIME_CALCULATED",entity:"overtime_reviews",entityId:row.id,
   ...(old?{before:{status:old.status,actualSeconds:old.actualSecondsSnapshot,potentialSeconds:old.potentialSecondsSnapshot,approvedSeconds:old.approvedSeconds,revision:old.revision}}:{}),after:{week:input.week,...data,revision:row.revision}},tx);
- if(row.status==="PENDING") await notify(tx,employeeId,"STAFF_OVERTIME_PENDING","overtime_reviews",row.id,`overtime-pending:${row.id}:${row.revision}`,"A completed weekly overtime calculation needs review.",true);
+ if(row.status==="PENDING") await notify(tx,employeeId,"STAFF_OVERTIME_PENDING","overtime_reviews",row.id,`overtime-pending:${row.id}:${row.revision}`,"Potential overtime needs review.",true);
  return {row,input};
 }
 export async function calculateOvertime(identity:Identity|null,input:unknown) {
  await securityBoundary(identity,async actor=>assertRole(actor,["ADMIN","HR_MANAGER"]));
  const value=validated(overtimeCalculationSchema,input);
- return authorizedMutation(identity,async(actor,tx)=>{assertRole(actor,["ADMIN","HR_MANAGER"]);await tx.$queryRaw`SELECT id FROM employees WHERE id=${value.employeeId}::uuid FOR UPDATE`;return (await calculateOvertimeInTransaction(tx,actor,value.employeeId,value.week,await databaseNow(tx))).row;});
+ // Staff may (re)calculate the running week too: checkout already calculates it, and a decision is bound to the
+ // attendance snapshot it was made on, so later attendance in the same week reopens the review.
+ return authorizedMutation(identity,async(actor,tx)=>{assertRole(actor,["ADMIN","HR_MANAGER"]);await tx.$queryRaw`SELECT id FROM employees WHERE id=${value.employeeId}::uuid FOR UPDATE`;
+  const now=await databaseNow(tx),settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1},select:{timezone:true,weekStartDay:true}});
+  if(now<dayStart(localWeek(value.week,settings.weekStartDay),settings.timezone))throw new AppError(409,"WEEK_NOT_STARTED","Overtime can be calculated once the workweek has started.");
+  return (await calculateOvertimeInTransaction(tx,actor,value.employeeId,value.week,now,true)).row;});
 }
 export async function decideOvertime(identity:Identity|null,input:unknown) {
  await securityBoundary(identity,async actor=>assertRole(actor,["ADMIN","HR_MANAGER"]));
@@ -61,7 +66,15 @@ export async function decideOvertime(identity:Identity|null,input:unknown) {
   const old=await tx.overtimeReview.findUnique({where:{id:value.id}});if(!old)throw new AppError(404,"NOT_FOUND","Overtime review not found.");reviewer(actor,old.employeeId);
   await tx.$queryRaw`SELECT id FROM employees WHERE id=${old.employeeId}::uuid FOR UPDATE`;
   const now=await databaseNow(tx),current=await weekCalculation(tx,old.employeeId,dateKey(old.weekStartDate),now);
-  if(value.revision!==old.revision || old.status!=="PENDING" || !current.ended || current.blockers.length || old.actualSecondsSnapshot!==current.actualSeconds || old.thresholdSeconds!==current.thresholdSeconds || old.policyVersion!==current.policyVersion) throw new AppError(409,"STALE","This calculation changed or needs attendance resolution. Recalculate and review again.");
+  // A retry of the identical decision by the same reviewer (for example after a lost response) changes nothing.
+  if(old.status===value.decision && old.revision===value.revision+1 && old.reviewedBy===actor.userId && old.approvedSeconds===value.approvedSeconds && (old.reviewComment??"")===value.comment) return old.id;
+  if(old.status==="APPROVED" || old.status==="REJECTED") throw new AppError(409,"ALREADY_REVIEWED",`This overtime record has already been ${old.status.toLowerCase()}. Refresh to see the current decision.`);
+  if(old.status==="NOT_REQUIRED") throw new AppError(409,"NOT_REQUIRED","This week has no potential overtime to review.");
+  // Open weeks are reviewable: the decision is bound to this snapshot, and later attendance marks it stale for a new review.
+  if(current.blockers.length) throw new AppError(409,"UNRESOLVED_ATTENDANCE",`Resolve attendance first: ${current.blockers.join("; ")}.`);
+  if(old.status==="STALE") throw new AppError(409,"STALE","Attendance changed after this calculation. Recalculate the week, then review it again.");
+  if(value.revision!==old.revision) throw new AppError(409,"STALE","This overtime record changed since the page loaded. Refresh and review the latest calculation.");
+  if(old.actualSecondsSnapshot!==current.actualSeconds || old.thresholdSeconds!==current.thresholdSeconds || old.policyVersion!==current.policyVersion) throw new AppError(409,"STALE","Attendance changed after this calculation. Recalculate the week, then review it again.");
   if(value.approvedSeconds>current.potentialSeconds || value.decision==="REJECTED" && value.approvedSeconds!==0) throw new AppError(400,"APPROVAL_AMOUNT","Approved seconds must fit current potential overtime; rejection approves zero.");
   const row=await tx.overtimeReview.update({where:{id:old.id},data:{status:value.decision,approvedSeconds:value.approvedSeconds,reviewedBy:actor.userId,reviewedAt:now,reviewComment:value.comment,revision:{increment:1}}});
   const allocation=tail(current.candidates,row.approvedSeconds);
@@ -80,7 +93,13 @@ export async function overtimeData(identity:Identity|null,employeeIdInput:unknow
    const employee=await tx.employee.findUnique({where:{id:employeeId},select:{id:true,legalName:true,employeeNumber:true}});if(!employee)throw new AppError(404,"NOT_FOUND","Employee not found.");
    const current=await weekCalculation(tx,employeeId,value.week,await databaseNow(tx));const row=await tx.overtimeReview.findUnique({where:{employeeId_weekStartDate:{employeeId,weekStartDate:dateValue(current.week)}}});
    const stale=!!row && (row.status==="STALE" || row.actualSecondsSnapshot!==current.actualSeconds || row.thresholdSeconds!==current.thresholdSeconds || row.policyVersion!==current.policyVersion || current.blockers.length>0);
-   return {employee,current,row:row?{id:row.id,status:stale?"STALE":row.status,revision:row.revision,approvedSeconds:row.approvedSeconds,actualSecondsSnapshot:row.actualSecondsSnapshot,potentialSecondsSnapshot:row.potentialSecondsSnapshot,reviewedAt:row.reviewedAt,reviewComment:row.reviewComment}:null,
+   // Attendance evidence for the reviewer: each session in the week, its schedule and the time outside it.
+   const from=dayStart(current.week,current.timezone),until=dayStart(current.weekEnd,current.timezone);
+   const sessions=(await tx.attendanceSession.findMany({where:{employeeId,voidedAt:null,checkinAt:{lt:until},OR:[{checkoutAt:null},{checkoutAt:{gt:from}}]},orderBy:[{checkinAt:"asc"},{id:"asc"}],select:{id:true,workDate:true,source:true,scheduledStartAt:true,scheduledEndAt:true,checkinAt:true,checkoutAt:true}})).map(x=>{
+    const worked=x.checkoutAt?[interval(x.checkinAt,x.checkoutAt)]:[];
+    return {...x,workDate:dateKey(x.workDate),scheduled:!!x.scheduledStartAt,workedSeconds:seconds(worked),outsideScheduleSeconds:seconds(subtract(worked,current.scheduled))};
+   });
+   return {employee,current,sessions,open:!current.ended,row:row?{id:row.id,status:stale?"STALE":row.status,revision:row.revision,approvedSeconds:row.approvedSeconds,actualSecondsSnapshot:row.actualSecondsSnapshot,potentialSecondsSnapshot:row.potentialSecondsSnapshot,reviewedAt:row.reviewedAt,reviewComment:row.reviewComment}:null,
     activeApprovedSeconds:row?.status==="APPROVED" && !stale?row.approvedSeconds:0,allocation:row?.status==="APPROVED" && !stale?tail(current.candidates,row.approvedSeconds):[],canDecide:!own && !(actor.role==="HR_MANAGER" && actor.employeeId===employeeId),decisionBlockReason:actor.role==="HR_MANAGER" && actor.employeeId===employeeId?"An administrator must review your own overtime.":null};
   },{isolationLevel:"RepeatableRead"});
  });

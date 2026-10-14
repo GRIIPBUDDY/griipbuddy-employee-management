@@ -74,7 +74,10 @@ it("handles concurrent and duplicate decisions without duplicate audit or notifi
   const {row} = await pending();
   const results = await Promise.allSettled([overtime.decideOvertime(hr,rejection(row)),overtime.decideOvertime(admin,rejection(row))]);
   expect(results.filter(r=>r.status==="fulfilled")).toHaveLength(1);
-  await expect(overtime.decideOvertime(hr,rejection(row))).rejects.toMatchObject({code:"STALE"});
+  // The winning reviewer's identical retry is a no-op; anyone else is told the record is already decided.
+  const winner=(await db.overtimeReview.findUniqueOrThrow({where:{id:row.id}})).reviewedBy===hr.userId?hr:admin,other=winner===hr?admin:hr;
+  await expect(overtime.decideOvertime(winner,rejection(row))).resolves.toBe(row.id);
+  await expect(overtime.decideOvertime(other,rejection(row))).rejects.toMatchObject({code:"ALREADY_REVIEWED"});
   expect(await db.auditLog.count({where:{entityId:row.id,action:"OVERTIME_REJECTED"}})).toBe(1);
   expect(await db.notification.count({where:{sourceId:row.id,eventType:"OVERTIME_DECIDED"}})).toBe(1);
 });
@@ -84,7 +87,7 @@ it("preserves status on stale revisions, invalid amounts and newer decisions", a
   await expect(overtime.decideOvertime(hr,{...rejection(row),approvedSeconds:1})).rejects.toMatchObject({code:"APPROVAL_AMOUNT"});
   expect((await db.overtimeReview.findUniqueOrThrow({where:{id:row.id}})).status).toBe("PENDING");
   await overtime.decideOvertime(hr,{...rejection(row,"Approved evidence"),decision:"APPROVED",approvedSeconds:3600});
-  await expect(overtime.decideOvertime(admin,rejection(row))).rejects.toMatchObject({code:"STALE"});
+  await expect(overtime.decideOvertime(admin,rejection(row))).rejects.toMatchObject({code:"ALREADY_REVIEWED"});
   expect((await db.overtimeReview.findUniqueOrThrow({where:{id:row.id}})).status).toBe("APPROVED");
 });
 it("requires a fresh review after changed evidence without restoring rejected overtime pay", async () => {
@@ -102,7 +105,7 @@ it("cannot overwrite a decided overtime record captured in finalized earnings", 
   // A synthetic finalized snapshot isolates decision protection from payroll roster setup.
   const frozen=await db.weeklyEarningStatement.create({data:{employeeId:employee.id,weekStartDate:new Date("2030-01-07"),weekEndDate:new Date("2030-01-14"),timezoneSnapshot:"Asia/Dhaka",currency:"BDT",status:"FINALIZED",calculationSnapshot:{formatVersion:1,reviewId:row.id},monthComponents:{},sourceFingerprint:"0".repeat(64),baseAmount:"160",overtimeAmount:"0",commissionAmount:"0",bonusAmount:"0",deductionAmount:"0",otherAmount:"0",finalAmount:"160",calculatedBy:admin.userId,reviewedBy:admin.userId,finalizedBy:admin.userId,finalizedAt:new Date("2030-02-11T12:00:00Z")}});
   const saved=await db.overtimeReview.findUniqueOrThrow({where:{id:row.id}});
-  await expect(overtime.decideOvertime(admin,{...rejection(saved),decision:"APPROVED",approvedSeconds:3600,comment:"Attempt to overwrite finalized review"})).rejects.toMatchObject({code:"STALE"});
+  await expect(overtime.decideOvertime(admin,{...rejection(saved),decision:"APPROVED",approvedSeconds:3600,comment:"Attempt to overwrite finalized review"})).rejects.toMatchObject({code:"ALREADY_REVIEWED"});
   expect(await db.weeklyEarningStatement.findUniqueOrThrow({where:{id:frozen.id}})).toEqual(frozen);
   expect(await db.overtimeReview.findUniqueOrThrow({where:{id:row.id}})).toEqual(saved);
 });
