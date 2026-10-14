@@ -1,6 +1,6 @@
 # GriipBuddy Employee Management
 
-Internal employee and workforce management for GriipBuddy: people and documents, schedules and live attendance, overtime review, monthly payroll, leave, performance and incident records. Guides are in [`docs/`](docs/): [architecture](docs/architecture.md), [deployment](docs/deployment.md), [Hostinger deployment](docs/deployment-hostinger.md), [backup and recovery](docs/backup-recovery.md) and [workforce operations](docs/workforce-operations.md).
+Internal employee and workforce management for GriipBuddy: people and documents, schedules and live attendance, overtime review, monthly payroll, leave, performance and incident records. Guides are in [`docs/`](docs/): [architecture](docs/architecture.md), [deployment, backups and rollback](docs/deployment.md) and [workforce operations](docs/workforce-operations.md).
 
 The internal employee workspace now includes employee creation, editing and deactivation; searchable profiles; department and position catalogs; private documents and photos; and a unified, permission-filtered work timeline. The frozen [architecture](docs/architecture.md) applies with the narrow [Phase 3B catalog revision](docs/architecture.md#architecture-revisions). Accounts, authentication, authorization, settings and the application shell reuse Phase 3A. Phase 3C adds dated weekly work schedules, the employee schedule portal and actual check-in/check-out sessions. The [Phase 3C eligibility revision](docs/architecture.md#architecture-revisions) records the explicitly requested scheduled-end cutoff. Phase 3D adds attendance review, reviewed ADD/REPLACE/VOID corrections, source-aware leave/holiday exceptions, exact worked-time summaries, weekly overtime review and in-app notifications. The [Phase 3D policy revision](docs/architecture.md#architecture-revisions) records the initial week-start configuration and frozen mandatory approval. Phase 3E adds effective compensation history, monthly salary calculations, approved monetary overtime, reviewed adjustments, pre-order commissions, Admin finalization and later reconciled corrections. Phase 3F adds categorized leave requests, retained decision history, performance reviews, official warnings with receipt acknowledgement, and asset issue/return history. Phase 3G adds role dashboards, paginated source-authorized notifications, seven management reports with CSV export, and a centralized permission-filtered audit viewer. Phase 3H reviews security and prepares protected recovery and deployment procedures.
 
@@ -267,7 +267,7 @@ docker/                   Initial non-owner role provisioning
 docs/                     Architecture, deployment, recovery and operations guides
 ```
 
-Before any release, read [docs/deployment.md](docs/deployment.md) and [docs/backup-recovery.md](docs/backup-recovery.md).
+Before any release, read [docs/deployment.md](docs/deployment.md). It covers releasing, backups, restore drills and rollback.
 
 
 ## Phase 3H recovery and production preparation

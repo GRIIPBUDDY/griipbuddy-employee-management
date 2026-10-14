@@ -1,93 +1,273 @@
-# Deployment preparation — Phase 3H
+# Deployment guide
 
-This is a reviewed procedure for a later, explicitly authorized deployment to the existing Hostinger KVM 2 VPS. **No live deployment, host inspection, DNS, proxy, firewall or scheduler change was performed in Phase 3H.** Read the [recovery procedure](backup-recovery.md) before proceeding.
+How the GriipBuddy employee app runs on the Hostinger VPS, how to release a new version safely, and how to back up, restore and roll back. Production address: **https://griipbuddy.cloud**.
 
-## Release and shared-host prerequisites
+The same VPS hosts other websites and containers. Everything here touches **only** the `griipbuddy-employee` project and the griipbuddy.cloud route.
 
-1. Establish the owner's private GitHub repository and reviewed release. Phase 4A initialized local `main` and created the reviewed source commit. GitHub visibility, permissions and push remain blocked until owner authentication is available. Do not invent a remote release or push credentials/employee data. Ignore rules cover local tooling, environment files, private files and recovery artifacts.
-2. Build and validate the image from that exact commit away from production. Keep the image digest, commit, lockfile, Compose files, eight migration names, PostgreSQL major and operator approval in the release record. The production override requires `EMPLOYEE_APP_IMAGE`; use a registry digest, or a locally loaded immutable release tag with its recorded image ID. The local ARM64 QA image does not prove compatibility with the VPS CPU architecture. Build/test the correct target architecture before launch.
-3. Inspect the existing VPS read-only: available disk/RAM/CPU, Docker/Compose version, CPU architecture, published ports, container names/projects, existing reverse proxy, certificate manager, networks, storage and backup arrangement. Do not stop or reconfigure other applications. Set an explicit dedicated project name; do not use `--remove-orphans` across projects, global pruning, `down -v`, database reset or schema push.
-4. Select a free loopback application port after inspection. The sample 3100 is not a reservation. PostgreSQL has no published port. Only the application joins the frontend network; the database is on an internal backend network. Compose service DNS resolves `employee-db` within its project network. [Docker networking documentation](https://docs.docker.com/compose/how-tos/networking/).
-5. Reserve enough resources for the other services: the current app cap is 768 MiB/1 CPU and DB 512 MiB/1 CPU; build/migration/backup tools consume additional resources. Validate capacity with realistic employee/report/document load. These limits are configuration, not a VPS load-test result.
+## 1. What runs where
 
-## Protected configuration
+| Piece | Location |
+|---|---|
+| Release folders | `/srv/griipbuddy-employee/releases/<RELEASE>`. `<RELEASE>` is the first 12 characters of the git commit; each folder has a `RELEASE_COMMIT` file. |
+| Live release | `/srv/griipbuddy-employee/current`, a symlink to `releases/<RELEASE>` |
+| Configuration and secrets | `/srv/griipbuddy-config/employee.env` (mode 0600, never in git) |
+| Containers | Docker Compose project `griipbuddy-employee`, defined by `docker-compose.hostinger.yml`. `employee-db` is PostgreSQL 18 with no public port; `employee-app` is Next.js on `127.0.0.1:3100`. |
+| Data | Docker volumes `employee-postgres` (database) and `employee-documents` (uploaded files) |
+| Web traffic | Host Nginx, `/etc/nginx/sites-available/griipbuddy-employee.conf`, forwards griipbuddy.cloud to `127.0.0.1:3100`. Certificates come from Let's Encrypt (certbot). |
+| Daily notifications | systemd `griipbuddy-employee-notifications.timer` (18:10 UTC), which runs `npm run notifications:due` in a one-off container |
+| Backups | Recovery sets in `/srv/griipbuddy-recovery/<NAME>`, plus an encrypted copy off the server |
+| Backup tools | `/srv/griipbuddy-config/tools/`: `node24` (Node.js 24) and `recovery-hostinger/` (see §5) |
+| Image builder | Docker Buildx builder `griipbuddy-release1`. Stop it after each build. |
 
-Copy `.env.production.example` to an absolute operator-owned file **outside the checkout**, for example `/srv/griipbuddy-config/employee.env`, in a 0700 directory with file mode 0600. Replace all placeholders. Generate different random hex secrets for owner DB password, runtime DB password and `AUTH_SECRET` (e.g. `openssl rand -hex 32`). Hex passwords avoid URL-encoding errors. Store configuration and encryption/recovery keys in an approved encrypted vault, separately from recovery sets.
-
-- `APP_BASE_URL=https://hr.griipbuddy.com` must be the actual canonical browser origin. `ALLOW_LOCAL_HTTP=false` in production. Compose sets `AUTH_URL` to the same origin. The approved domain still needs owner/DNS/certificate verification.
-- `APP_PORT` is the selected loopback port; `COMPOSE_PROJECT_NAME` identifies only this application. `EMPLOYEE_APP_IMAGE` is the reviewed image identity.
-- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_APP_PASSWORD` are Compose/operator inputs. The normal app receives only `DATABASE_URL` using `employee_runtime`; it never receives owner or bootstrap variables.
-- `BOOTSTRAP_ADMIN_*` is for a fresh first installation only. Remove the temporary values after the first password change. Bootstrap refuses existing users.
-- App runtime also receives `NODE_ENV=production`, UTC process time and `/app/private/documents`. Private bytes persist in the dedicated document volume; database bytes persist in the PostgreSQL volume. Changing process UTC does not change organization-local business dates.
-- Normal startup fails on weak session secrets, noncanonical/mismatched origins, non-HTTPS nonlocal origins, an owner database URL, or injected owner/bootstrap settings. One-off tools use `docker-compose.tools.yml` and bypass the app entrypoint intentionally. **Never use the tools override with `up`.**
-- Initializer credentials only affect a new empty PostgreSQL volume. Editing the environment file does not rotate passwords in an existing database. Rotation needs coordinated owner `ALTER ROLE`, protected configuration replacement, app restart and verification. Rotating `AUTH_SECRET` logs out existing sessions.
-
-## Commands for a later authorized release
-
-Run from the reviewed checkout using a privileged operator account. Define nonsecret paths and a command wrapper; do not print resolved Compose configuration because it includes secrets.
+Shell helpers used below (run on the VPS as root):
 
 ```sh
-employee_env=/srv/griipbuddy-config/employee.env
-employee_project=griipbuddy-employee
-employee_compose() {
-  docker compose --env-file "$employee_env" --project-name "$employee_project" \
-    -f docker-compose.yml -f docker-compose.release.yml "$@"
-}
-employee_compose config --quiet
+CONF=/srv/griipbuddy-config/employee.env
+NODE=/srv/griipbuddy-config/tools/node24
+TOOLS=/srv/griipbuddy-config/tools/recovery-hostinger
+app()   { docker compose --env-file "$CONF" -p griipbuddy-employee -f /srv/griipbuddy-employee/current/docker-compose.hostinger.yml "$@"; }
+tools() { docker compose --env-file "$CONF" -p griipbuddy-employee -f /srv/griipbuddy-employee/current/docker-compose.hostinger.yml \
+            -f /srv/griipbuddy-employee/current/docker-compose.tools.yml run -T --rm --no-deps --entrypoint node employee-app "$@"; }
+psql_ro() { docker exec -i griipbuddy-employee-employee-db-1 sh -c 'exec psql -X -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; }
 ```
 
-Before changing an existing installation, create a consistent database/document recovery set, encrypt it, verify offsite transfer and perform the restore drill in [backup-recovery.md](backup-recovery.md). Record its snapshot time, image and migration version. Schedule a quiet maintenance window; stop this application's writers and daily job while changing schema. Do not stop the shared proxy or another project. Inspect pending migration SQL and compare the existing `_prisma_migrations` history with the release. Never edit an already-applied migration or auto-resolve a failed migration.
+### Never do this on the VPS
 
-For first installation only, start the dedicated database and wait for its health check. An existing installation keeps its volume and database.
+- Never run `docker compose down -v`, `docker volume rm/prune`, `docker system prune`, `prisma migrate reset`, `prisma db push`, `DROP`, `TRUNCATE`, or delete release, recovery or volume directories.
+- Never use `docker-compose.tools.yml` with `up`. It carries owner credentials and is for one-off commands only.
+- Never stop, restart or reconfigure other projects' containers, the Docker daemon, or the whole of Nginx (`reload` is fine).
+- Never commit `employee.env`, keys, backups or real employee data to git.
+- Never re-run bootstrap on an existing installation.
+
+## 2. Data fingerprint (used to prove nothing was lost)
+
+This read-only query prints, for every table, its row count and a digest of all its rows. Save it on the server as `fingerprint.sql`. Run it before and after a change, then compare the outputs with `cmp`.
+
+```sql
+BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SELECT format($f$SELECT %L, count(*), md5(coalesce(string_agg(md5(row_to_json(t)::text), '' ORDER BY md5(row_to_json(t)::text)), '')) FROM %I.%I t;$f$, tablename, schemaname, tablename)
+FROM pg_tables WHERE schemaname='public' ORDER BY tablename
+\gexec
+COMMIT;
+```
 
 ```sh
-employee_compose up -d --no-build --wait employee-db
-employee_compose -f docker-compose.tools.yml run --rm --no-deps employee-app npm run db:migrate
-employee_compose -f docker-compose.tools.yml run --rm --no-deps employee-app npm run db:runtime-grants
-# Fresh user table only; omit on every upgrade:
-employee_compose -f docker-compose.tools.yml run --rm --no-deps employee-app npm run db:bootstrap
-employee_compose up -d --no-build --wait employee-app
-employee_compose ps
+psql_ro < fingerprint.sql > before.tsv      # ... change ...      psql_ro < fingerprint.sql > after.tsv; cmp before.tsv after.tsv
 ```
 
-Migration and grant commands must succeed before the app starts. Runtime does not migrate automatically. Fresh migrations and populated upgrades have local automated coverage; Phase 3H adds no migration. For an unexpected failed migration, leave the app isolated, preserve logs and the pre-change recovery set, and investigate with the owner; do not reset/drop the database.
+## 3. Releasing a new version
 
-## Existing proxy, domain and SSL checklist
+Work in a dedicated folder per release, for example `W=/srv/griipbuddy-config/release-<DATE>-<RELEASE>` (create it with mode 0700).
 
-Inspect before selecting a proxy method. A host-based proxy can route to the chosen loopback port. A container proxy cannot reach the host via its own `127.0.0.1`; after inspection, an operator may attach **only the app** to the existing designated ingress network under a reviewed override and use its project-specific alias on port 3000. Do not attach PostgreSQL to ingress, publish PostgreSQL, start another proxy on occupied 80/443, or replace global proxy configuration.
-
-The later operator must verify domain ownership and A/AAAA records, route only this hostname, preserve the browser Host and trusted forwarded protocol/host, use HTTPS and redirect HTTP, renew certificates with the existing certificate manager, and bypass proxy/CDN caching for authenticated pages/API/downloads. Configure an upload body allowance compatible with the 10 MiB file limit plus multipart overhead; application validation still enforces it. Bound request timeouts/concurrency and add proxy rate limits if required by host policy. Test security headers, Secure/HttpOnly/SameSite cookies, origin-protected mutations and downloads through the **actual HTTPS proxy**. Add HSTS only after the owner confirms hostname/subdomain policy and working HTTPS. No proxy/domain assumptions have been executed here.
-
-## Health, acceptance and scheduling
-
-`/api/health/live` checks the running process. `/api/health/ready` checks DB connectivity and writable private storage and returns no internal configuration. Compose waits for DB health; app checks readiness every 15 seconds after a 30-second start period. Test both endpoints through loopback and the final HTTPS origin, login/logout/password change, each role, one authorized document download, rejected foreign/private downloads, one schedule/attendance workflow and report export. Do not use the destructive disposable HTTP smoke script on production.
-
-Confirm the first Admin password change, company timezone, employment dates and mandatory overtime approval policy. Run a shadow salary closeout with explicit expected monetary values and owner sign-off before issuing real payroll. Production volumes, approved schedules and finalized salaries require the documented retention rules. Monitor app/DB health, disk, backup age and redacted errors. Rotation of Docker logs is configured (three 10 MiB files per service).
-
-After separate owner approval, schedule a nonoverlapping daily one-off job with normal runtime credentials:
+**1. Check the release locally.** The type check, lint, unit, integration, HTTP and browser tests must all pass (see the README). Then check whether the release has database migrations:
 
 ```sh
-employee_compose run --rm --no-deps employee-app npm run notifications:due
+git diff --stat <LIVE_COMMIT> <NEW_COMMIT> -- prisma/migrations
 ```
 
-It uses a DB advisory lock and event-key deduplication. Schedule the recovery tool separately with protected operator privileges and alert on failures or stale offsite backup status. Do not put secrets in cron command arguments or capture resolved environment output. No scheduler is installed in this phase.
+If nothing is listed, this is an **app-only** release. If migrations are listed, read their SQL. They must be additive and safe on existing data.
 
-## Rollback and disaster recovery
+**2. Upload the source** into a new release folder, which must not already exist:
 
-Keep the previous tested image digest and configuration. Application-only rollback is permitted only after verifying the current schema and data remain compatible with that image. Set its image identity in protected configuration and recreate **employee-app only** with `up -d --no-build --wait employee-app`; preserve all volumes. Verify readiness and role/document acceptance again. Do not guess that an older image supports newer records or constraints. Do not run migration down, database reset, `down -v` or global cleanup.
+```sh
+git archive --format=tar <NEW_COMMIT> | ssh <vps> 'set -e; R=/srv/griipbuddy-employee/releases/<RELEASE>; test ! -e $R; install -d -m 0755 $R; tar -xf - -C $R; echo <FULL_COMMIT> > $R/RELEASE_COMMIT'
+```
 
-An incompatible schema or corrupted data requires a separately approved disaster-recovery decision. Preserve the current incident state; choose a verified encrypted recovery set; quantify writes after its snapshot; restore to a new isolated project and prove integrity before proposing cutover. The provided tool intentionally refuses restoration into the existing production project. Production cutover is an owner-authorized later procedure. Rotate `AUTH_SECRET` and invalidate restored sessions before reopening any restored production instance, coordinate DB/config credentials, verify every role and file, and ensure only one writable live instance and one scheduled job. Local restore timing is not a guaranteed production RTO/RPO.
+**3. Build the image on the VPS** (linux/amd64) in the background, wait for it, then stop the builder:
 
-## Launch gates
+```sh
+cd /srv/griipbuddy-employee/releases/<RELEASE>
+nohup docker buildx build --builder griipbuddy-release1 --platform linux/amd64 --load -t griipbuddy-employee:<RELEASE> . > $W/build.log 2>&1 &
+docker image inspect griipbuddy-employee:<RELEASE> --format '{{.Id}} {{.Architecture}}'   # when finished; note the sha256 ID
+docker buildx stop griipbuddy-release1
+```
 
-- [ ] Private GitHub repository, reviewed commit, secret-history check and immutable target-architecture image.
-- [ ] Owner review of Phase 3H results, business rules and shadow payroll.
-- [ ] Read-only shared VPS capacity/port/proxy/network inspection.
-- [ ] Protected real configuration, account and credential handover.
-- [ ] Verified encrypted off-server backup plus isolated restore using the release image.
-- [ ] Reviewed migration plan and compatible previous-image rollback or approved DR plan.
-- [ ] Working domain, SSL renewal and real proxy security acceptance.
-- [ ] Health/backup monitoring, approved daily job and manual retention policy.
-- [ ] Explicit authorization for the deployment phase.
+**4. Back up the live system** (the app keeps running) and copy the backup off the server, as described in §5. Do not continue until the off-server copy has been verified.
 
-Stop at preparation until these gates and owner approval are satisfied.
+**5. Rehearse on a restored copy** (restore drill, §5):
+- restore the backup into a throwaway project;
+- confirm its fingerprint equals the live one;
+- run the new image's migrations there (`migrate deploy` should say "No pending migrations" for an app-only release);
+- start the new image and check `/api/health/ready` and `/login`.
+
+For a migration release, also start the **previous** image on the migrated copy. That proves rollback is still possible.
+
+**6. Save the current image for rollback:**
+
+```sh
+docker save griipbuddy-employee:<LIVE_RELEASE> -o /srv/griipbuddy-config/images/griipbuddy-employee-<LIVE_RELEASE>.tar
+```
+
+**7. Cut over** in a quiet period. Run the steps in order and stop at the first failure. If something fails, roll back (§4).
+
+```sh
+cp -p $CONF $W/employee.env.before; cp -p /etc/nginx/sites-available/griipbuddy-employee.conf $W/nginx.conf.before
+readlink /srv/griipbuddy-employee/current > $W/previous-release.txt
+docker inspect griipbuddy-employee-employee-app-1 --format '{{.Image}}' > $W/previous-image.txt
+```
+
+1. **Maintenance on (griipbuddy.cloud only).** In the `server_name griipbuddy.cloud;` block, add these lines inside `location / {` and before `proxy_pass`:
+   ```nginx
+   default_type text/plain;
+   add_header Retry-After 30 always;
+   return 503 "The employee workspace is being updated. Please refresh shortly.\n";
+   ```
+   Then run `nginx -t && systemctl reload nginx`. Wait until `https://griipbuddy.cloud/login` returns 503.
+2. **Pause the daily job:** `systemctl stop griipbuddy-employee-notifications.timer griipbuddy-employee-notifications.service`.
+3. **Final backup:** with no one writing, run the backup again (§5) into `/srv/griipbuddy-recovery/<DATE>-cutover-<RELEASE>`, and save a fingerprint: `psql_ro < fingerprint.sql > $W/before.tsv`.
+4. **Stop the app:** `app stop -t 30 employee-app`.
+5. **Point the configuration at the new image.** Edit `$CONF` so that `EMPLOYEE_APP_IMAGE='sha256:<NEW_IMAGE_ID>'`. Change only that line.
+6. **Switch the live release:**
+   ```sh
+   ln -s releases/<RELEASE> /srv/griipbuddy-employee/current.next && mv -Tf /srv/griipbuddy-employee/current.next /srv/griipbuddy-employee/current
+   ```
+7. **Migration release only:**
+   ```sh
+   tools node_modules/prisma/build/index.js migrate deploy
+   tools --import tsx scripts/runtime-grants.ts
+   ```
+8. **Start the new app:** `app up -d --no-deps --no-build --wait --wait-timeout 150 employee-app`, then `curl -fsS http://127.0.0.1:3100/api/health/ready`.
+9. **Check the data:** `psql_ro < fingerprint.sql > $W/after.tsv; cmp $W/before.tsv $W/after.tsv`. For an app-only release the two must be identical. For a migration release, only the intended new tables or rows may differ.
+10. **Maintenance off:** `cp -p $W/nginx.conf.before /etc/nginx/sites-available/griipbuddy-employee.conf && nginx -t && systemctl reload nginx`. Wait until `https://griipbuddy.cloud/login` returns 200.
+11. **Resume the daily job:** `systemctl start griipbuddy-employee-notifications.timer`.
+
+**8. Verify and tidy up:**
+- `https://griipbuddy.cloud/api/health/ready` returns 200 and `/login` returns 200;
+- `docker logs --since 10m griipbuddy-employee-employee-app-1` shows no errors;
+- every container is still `Up` (`docker ps`);
+- the other sites on the VPS still respond;
+- copy the cutover backup off the server (§5);
+- sign in as an administrator and check the changed screens;
+- keep the previous release folder and image until the new release has been accepted.
+
+## 4. Rolling back
+
+An application-only rollback is safe when the release had no migration. It is also safe when the previous image was proven on the migrated database during the restore drill.
+
+```sh
+cp -p $W/employee.env.before $CONF                      # restores the previous EMPLOYEE_APP_IMAGE
+ln -sfn "$(cat $W/previous-release.txt)" /srv/griipbuddy-employee/current
+app up -d --no-deps --no-build --wait employee-app
+curl -fsS http://127.0.0.1:3100/api/health/ready
+```
+
+If the previous image is no longer loaded, run `docker load -i /srv/griipbuddy-config/images/griipbuddy-employee-<LIVE_RELEASE>.tar` first. Then restore the Nginx file, if maintenance is still on, and start the timer.
+
+Never run a "down" migration or reset the database. If the data itself is damaged, restore a backup into a **new** project, verify it, and agree the switch-over with the owner (§5).
+
+## 5. Backups and recovery
+
+A **recovery set** contains:
+- a PostgreSQL custom-format dump;
+- every stored document file;
+- a manifest with SHA-256 checksums;
+- `deployment.json`, which records the snapshot time, release, image, PostgreSQL version and migrations.
+
+The database alone does not restore documents. Configuration and keys are not part of the set; keep them separately in a password manager or vault.
+
+**Tools.** The VPS uses the adapted copies in `$TOOLS`:
+- `recovery.mjs` treats `docker-compose.hostinger.yml` as a complete file. The copy in `scripts/operations/` always adds `docker-compose.yml`, which suits local development.
+- `recovery-oneoff.mjs` is the same tool, but reads documents through a one-off container, so it also works while the app container is stopped.
+
+**Create and verify a backup.** Use a new directory every time; existing sets are never overwritten.
+
+```sh
+cd /srv/griipbuddy-employee/current
+SET=/srv/griipbuddy-recovery/<DATE>-pre-<RELEASE>
+psql_ro < fingerprint.sql > $W/before-backup.tsv       # compared with the restore drill below
+$NODE $TOOLS/recovery.mjs backup --project griipbuddy-employee --env-file $CONF --compose-file docker-compose.hostinger.yml --directory $SET --release <LIVE_RELEASE>
+$NODE $TOOLS/recovery.mjs verify --project griipbuddy-employee --env-file $CONF --compose-file docker-compose.hostinger.yml --directory $SET
+(cd $SET && find . -type f -print0 | sort -z | xargs -0 sha256sum) > $W/backup-files.sha256
+```
+
+**Copy it off the server, encrypted.** This runs on the operator's computer and uses [age](https://age-encryption.org). Keep the private key offline.
+
+```sh
+N=<DATE>-pre-<RELEASE>
+ssh <vps> "cat $W/backup-files.sha256" > $N.files.sha256
+ssh <vps> "tar -C /srv/griipbuddy-recovery -cf - $N" | age -r "$(cat recipient.txt)" -o $N.tar.age
+mkdir verify && age -d -i backup-age.key $N.tar.age | tar -xf - -C verify && (cd verify/$N && shasum -a 256 -c ../../$N.files.sha256) && rm -rf verify
+```
+
+A backup only counts once the off-server copy has been decrypted and every checksum shown as `OK`.
+
+**Restore drill.** This restores into a throwaway project and never touches production.
+
+1. Create a drill folder `/srv/griipbuddy-config/drills/restore-<RELEASE>` containing copies of `docker-compose.hostinger.yml` and `docker-compose.tools.yml` from the release.
+2. Write `$W/restore.env` (mode 0600) with these values:
+   - `COMPOSE_PROJECT_NAME=griipbuddy-restore-<RELEASE>`;
+   - a free port, for example `APP_PORT=3195`;
+   - `APP_BASE_URL=http://127.0.0.1:3195` and `ALLOW_LOCAL_HTTP=true`;
+   - new random `AUTH_SECRET`, `POSTGRES_PASSWORD` and `POSTGRES_APP_PASSWORD` (`openssl rand -hex 32` each);
+   - the same `POSTGRES_DB` and `POSTGRES_USER` as production;
+   - `EMPLOYEE_APP_IMAGE` set to the `image` recorded in the set's `deployment.json`;
+   - empty email settings.
+3. Run:
+   ```sh
+   cd /srv/griipbuddy-config/drills/restore-<RELEASE>
+   drill() { docker compose --env-file $W/restore.env -p griipbuddy-restore-<RELEASE> -f docker-compose.hostinger.yml "$@"; }
+   drill up -d --no-build --pull never --wait employee-db
+   $NODE $TOOLS/recovery.mjs restore-drill --project griipbuddy-restore-<RELEASE> --env-file $W/restore.env --compose-file docker-compose.hostinger.yml --directory $SET
+   docker exec -i griipbuddy-restore-<RELEASE>-employee-db-1 sh -c 'exec psql -X -qAt -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < fingerprint.sql > $W/restore.tsv
+   cmp $W/before-backup.tsv $W/restore.tsv      # fingerprint taken just before the backup; must be identical
+   ```
+4. To test a new release on the copy:
+   - set `EMPLOYEE_APP_IMAGE` in `restore.env` to the new image;
+   - run `migrate deploy` and `runtime-grants.ts` through `docker compose ... -f docker-compose.tools.yml run -T --rm --no-deps --entrypoint node employee-app ...` against the drill project;
+   - run `drill up -d --no-build --pull never --no-deps --wait employee-app`;
+   - check `curl http://127.0.0.1:3195/api/health/ready`;
+   - finish with `drill stop`.
+
+The tool refuses to restore into the live project or into a database that is not empty. Keep drill projects stopped. Removing them is a separate, deliberate decision: check the project name first and never use global pruning.
+
+**Retention.** Nothing is deleted automatically. A suggested schedule is 7 daily, 4 weekly and 6 monthly encrypted sets, plus each release's pre-release and cutover sets until that release is accepted.
+
+## 6. First installation on a new server
+
+Only for an empty server. An existing installation is updated with §3 instead.
+
+1. **Check the server:**
+   - look for free ports, and check that ports 80/443 are owned by the host Nginx;
+   - check the disk space;
+   - check the architecture with `uname -m`: `x86_64` means `linux/amd64`.
+   - Never reinstall the operating system: other sites live on it.
+2. **Upload and build.** Upload the source to `/srv/griipbuddy-employee/releases/<RELEASE>` and build the image (§3, steps 2–3). Then create the symlink: `ln -s releases/<RELEASE> /srv/griipbuddy-employee/current`. The database container mounts `current/docker/init-runtime.sh`, which creates the runtime database user on first start.
+3. **Create the configuration:**
+   ```sh
+   install -d -m 700 /srv/griipbuddy-config
+   install -m 600 /srv/griipbuddy-employee/current/.env.production.example $CONF
+   ```
+   Then fill it in:
+   - `COMPOSE_PROJECT_NAME=griipbuddy-employee`, `APP_PORT=3100`, `APP_BASE_URL=https://griipbuddy.cloud` and `ALLOW_LOCAL_HTTP=false`;
+   - `EMPLOYEE_APP_IMAGE='sha256:<IMAGE_ID>'`;
+   - `POSTGRES_DB` and `POSTGRES_USER`;
+   - separate `openssl rand -hex 32` values for `AUTH_SECRET`, `POSTGRES_PASSWORD` and `POSTGRES_APP_PASSWORD`;
+   - for the first start only, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME` and a unique `BOOTSTRAP_ADMIN_PASSWORD` of at least 12 characters.
+4. **Initialize and start:**
+   ```sh
+   app up -d --no-build --wait employee-db
+   tools node_modules/prisma/build/index.js migrate deploy
+   tools --import tsx scripts/runtime-grants.ts
+   tools --import tsx scripts/bootstrap.ts          # first installation only
+   app up -d --no-build --wait employee-app
+   curl -fsS http://127.0.0.1:3100/api/health/ready
+   ```
+5. **Web traffic:**
+   - add an Nginx server block for griipbuddy.cloud that proxies `location /` to `http://127.0.0.1:3100`;
+   - preserve the `Host` and `X-Forwarded-*` headers, and set `client_max_body_size 16m` (documents are limited to 10 MB);
+   - point the domain's DNS A record at the VPS;
+   - issue the certificate with `certbot --nginx -d griipbuddy.cloud`, redirecting HTTP to HTTPS;
+   - finish with `nginx -t && systemctl reload nginx`.
+6. **Daily notifications:** create the systemd service, a oneshot with `WorkingDirectory=/srv/griipbuddy-employee/current` running `docker compose --env-file /srv/griipbuddy-config/employee.env -p griipbuddy-employee -f docker-compose.hostinger.yml run --rm --no-deps employee-app npm run notifications:due`. Then add a daily timer and enable it.
+7. **Hand over:**
+   - sign in at https://griipbuddy.cloud with the bootstrap administrator and change its password;
+   - remove the `BOOTSTRAP_ADMIN_*` values from the configuration file;
+   - in Settings, check the company name, timezone (Asia/Dhaka), currency (BDT) and pay rules;
+   - take the first backup (§5).
+
+## 7. Health checks
+
+- `/api/health/live`: the process is running.
+- `/api/health/ready`: the database is reachable and document storage is writable. The container's own health check uses it every 15 seconds.
+- Sign-in, protected pages and APIs: without a session, pages redirect to `/login` (307) and APIs answer 401 with `Cache-Control: private, no-store`.
+- Container logs rotate automatically (3 × 10 MB per service).
