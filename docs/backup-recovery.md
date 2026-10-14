@@ -72,7 +72,7 @@ The tool rejects the source project, other project prefixes, nonempty public sch
 
 After integrity verification, compare all domain-table counts/digests, migration state, immutable salary totals, notification read state and append-only audit history with the source snapshot. Rotate the drill `AUTH_SECRET` to invalidate copied session cookies before any access. Start its app locally and test authorized downloads, private/deleted/foreign denials and role/commission revocation. Record actual elapsed times and evidence; repeat periodically and before a significant release. Do not confuse local synthetic recovery evidence with production offsite recovery evidence.
 
-If cleanup is authorized, confirm the project and volumes belong solely to this disposable drill before removing them. Never apply its cleanup command to a live/source project or use global volume pruning. Production cutover is outside this script and requires an approved data-loss/cutover/session-invalidation plan in [DEPLOYMENT.md](DEPLOYMENT.md).
+If cleanup is authorized, confirm the project and volumes belong solely to this disposable drill before removing them. Never apply its cleanup command to a live/source project or use global volume pruning. Production cutover is outside this script and requires an approved data-loss/cutover/session-invalidation plan in [deployment.md](deployment.md).
 
 ## Retention and incident handling
 

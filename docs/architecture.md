@@ -893,3 +893,76 @@ Any change to this entity set, owner/feature/publication boundary, final-pay imm
 | Acceptance matrix and unverified-operation limits | Design coverage is reviewed; runtime permissions, VPS exposure and recovery targets remain future tests, not claimed results. |
 
 **Retained unchanged in scope:** all required employee, workforce, compensation, commission, document, performance, discipline, asset, notification and audit functionality; three roles; one employee eligibility flag and one HR commission grant; 24 necessary tables; one Next.js app, one PostgreSQL database and one isolated two-service Compose project.
+
+## Architecture revisions
+
+Approved changes made after the architecture above was frozen, in order.
+
+
+### Phase 3B architecture revision — simple catalogs
+
+The Phase 3B request explicitly requires administrators and HR managers to create, edit, and deactivate departments and positions. This narrowly revises the earlier label-only decision in the architecture above. The original freeze document and existing migrations remain unchanged.
+
+Two independent catalogs provide stable UUID references, unique case-insensitive trimmed names, active status, creator, and timestamps. There is no organizational chart. Employment periods retain their original department and position label snapshots and receive nullable, restrictive foreign keys. Migration 003 backfills existing labels without replacing employee, account, employment, or audit identities. Catalog renaming changes current directory names; historical period labels retain their original values. Deactivation prevents new assignments and preserves existing references. Staff can keep an inactive assignment while editing its other employment details.
+
+Admin and HR_MANAGER manage catalogs through live server authorization, the existing mutation lock, optimistic concurrency, and atomic append-only audits. EMPLOYEE cannot list or mutate catalogs. The existing administrator account form remains compatible: approved staff label assignments resolve or create audited catalog entries within the same transaction. No catalogs can be hard-deleted or have their provenance rewritten. All other frozen permissions, storage, timeline, deployment, and phase boundaries continue to apply.
+
+### Phase 3C architecture revision — check-in cutoff
+
+The explicit Phase 3C request changes self-service check-in eligibility from the freeze's same-day late-after-end behavior to a scheduled-end cutoff. The selected rule is start minus the configured early allowance through scheduled end, inclusively; later attempts require a reviewed correction or exception. Actual timestamps still come from PostgreSQL `clock_timestamp()` after locks, truncated downward to seconds. Checkout remains unrestricted in duration/day and strictly after check-in. This revision changes eligibility only, not overtime or payable time.
+
+The original architecture above and migrations remain intact. Its overnight schedules, immutable published slots, future version replacements with explicitly confirmed restoring patterns, same-employee ownership, session snapshots, multiple returns per occurrence, single open session, no actual overlap and scoped operation-key retries remain in force. No new assignment, override or shift-instance table is introduced. Correction integration remains a controlled placeholder for Phase 3D; this phase has no direct administrative timestamp editor or alternate correction system. Calendar/leave workflows are not introduced here; future source-aware excusal must extend the shared occurrence eligibility resolver before those modules become active.
+
+### Phase 3D policy revision — initial workweek configuration
+
+The explicit Phase 3D request asks for a configurable first day of the workweek. The frozen architecture defaults to Monday. The implementation retains Monday for existing installations and permits Admin to choose a weekday only before any schedule, attendance, overtime review, leave request or calendar day exists. PostgreSQL and the service enforce this restriction. Initial policy dates are aligned to the selected boundary. Once official sources exist, timezone and week-start changes are blocked; a future historical transition requires a separate reviewed revision. Threshold changes remain append-only future-week policy versions, so historical calculations are preserved.
+
+The frozen V1 rule that all positive overtime requires manager approval remains in force. Settings clearly display mandatory approval rather than permitting auto-approval. This resolves the newer request's approval-setting suggestion within the existing freeze. Quantities remain integer seconds, leave contributes no actual work, and no salary or commission value is calculated.
+
+The original architecture above and migrations 001–004 remain intact. Additive migration 005 introduces the already approved correction, overtime review, leave/calendar and notification sources, with the controlled correction guard replacing ordinary attendance immutability only inside approved ADD/REPLACE/VOID transactions. It does not add a second audit engine, summary cache, interval/assignment table, queue service or automatic payroll process. The Phase 3C inclusive scheduled-end check-in cutoff continues to apply to required source-aware periods.
+
+### Workforce operations and compensation revision
+
+Approved by the Workforce Operations & Compensation Change Request, 11 October 2026. This revision supersedes conflicting Phase 3A–3H behavior; the earlier architecture and reports remain historical records. One Next.js app, one PostgreSQL database, existing Auth.js encrypted cookies, private files and isolated Compose remain. No queue, worker, Redis, external payroll transfer or new persistent service is introduced.
+
+#### Implementation stages
+
+A: schema/history impact and architecture; B: confidential staff-only commissions and employee rechecks; C: verified account email, remembered sessions and statuses; D: independent task assignments; E: attendance-based weekly earnings/monthly payable; F: dated recurring exceptions, swaps and unscheduled overtime; G: date reporting, dashboards and full verification. No deployment occurs between stages.
+
+#### Confidential commission authority
+
+Admin and independently commission-authorized HR manage grants and entries. Employees can only read their own eligible records and request rechecks; they cannot create/edit/withdraw commission entries. An ineligible employee receives generic not-found responses and no feature labels, permission fields, amounts, empty states, notifications or history. Private salary rows and JSON snapshots are projected explicitly; aggregate take-home totals remain available but contain no commission labels or restricted inputs. HR self-review remains prohibited. Historical included commissions are corrected through reviewed, classified adjustments rather than mutation.
+
+#### Accounts and sessions
+
+ACTIVE, ON_HOLD and SUSPENDED extend accounts without deleting their history. The legacy isActive flag is synchronized with suspension for old consumers. Hold permits personal reads and permitted non-operational requests but forbids attendance, task progress/completion and swap submission/acceptance. Suspended accounts cannot authenticate/use cookies. Admin manages employee statuses; HR cannot affect Admin accounts or self; the last active Admin remains protected. Changes require a reason and audit, and employee notifications omit internal reasons.
+
+Normal sessions retain the absolute 12-hour policy. Remembered sessions use the same encrypted HttpOnly cookies and a server-configured lifetime (30 days initially, bounded configuration); neither mode rolls past its issued absolute expiration. Session version, status, role and grants are rechecked from the database. No password enters browser storage.
+
+Email changes retain the same user/employee IDs. Admin can reauthenticate and request their own email change; authorized staff can request employee changes under the same authority boundaries. Only a one-use, hashed, expiring verification token delivered to the new address can activate it. Completion atomically rechecks uniqueness, changes email and revokes prior sessions; the old address is notified. Delivery absence blocks production. Explicit development preview is restricted to development plus a configured loopback origin; it is never a production fallback. Failed old-address notification is retained for retry rather than concealing a delivery failure or undoing the verified identity.
+
+#### Tasks and schedules
+
+Each selected employee receives an independent task-assignment record, with assigned/due date, priority, revision, creator and completion evidence. Own progress/completion cannot alter assignee/title/due date. Staff can review/manage with audited revisions; hold and suspension are enforced inside mutations. Reports explicitly select assigned, due or completed date semantics.
+
+Weekly recurring schedules keep their existing dated versions/slots. A one-week/one-day exception splits a future range and restores its original pattern. This occurrence/this and future/entire unstarted future series options preserve original versions and reject attendance already started. The default helper emits two 4-hour work slots separated by a 4-hour nonworking break; configurable workdays/start times retain multiple/overnight slots. Standard weekly expected hours default to 48, separately versioned from the overtime threshold (new organizations initially 48). Existing threshold histories are preserved.
+
+Swaps record two future date/slot identities and source revisions. Both employee consent and a distinct authorized staff approval are required. Approval under the existing mutation lock rechecks status, employment, future dates, conflicts and attendance, then creates dated exceptions for both employees atomically. Decline/rejection leave schedules untouched. No employee receives another employee's personal profile through the swap directory.
+
+UNSCHEDULED attendance uses server time, no invented scheduled snapshot and the existing one-open-session/idempotency constraints. It is available only when no actual occurrence intersects that organization-local date (including an overnight occurrence). A scheduled date outside its eligible slot cannot fall back to unscheduled work. Closed work outside schedule and unscheduled time joins the weekly threshold candidate by interval union, so overlapping candidate reasons never double-count. Overtime remains subject to review and source changes make decisions stale.
+
+#### Earnings formula and history boundary
+
+The owner explicitly retained calendar-day proration for hires/leavers and approved paid leave/holiday coverage. Unpaid leave contributes zero base coverage. All intervals use organization-local dates; monetary arithmetic uses Decimal precision 40 and half-up two-decimal components.
+
+For each monthly compensation-rate/employment segment: planned payable seconds are the assigned work intervals in that segment; credited seconds are the union of verified scheduled ordinary work and approved paid leave/holiday credit, excluding approved payable overtime and capped by planned intervals. Monthly segment base = monthly basic × eligible segment calendar days / calendar days in month × credited seconds / planned payable seconds. Summing eligible segments preserves rate/employment history. A fully covered full-month schedule at one rate earns that full monthly basic. Zero planned seconds for a monthly segment blocks finalization; no fictitious denominator is substituted. New hourly/daily calculations also restrict ordinary base to eligible scheduled coverage; extra/unscheduled work never creates ordinary base automatically.
+
+Weekly statements allocate these exact unrounded daily facts to each workweek, separately recording potential overtime, approved overtime, eligible approved commissions and approved adjustments. Overtime = approved seconds / 3600 × the effective employee overtime hourly rate. Legacy statements retain their agreed equivalents/multipliers; the new method requires the separate effective hourly rate and never substitutes a legacy rate. Missing unresolved rates block finalization. Attendance-proportional policy begins at the stored earnings effective month; previous finalized amounts/formula snapshots are retained, and earlier periods continue their historical formula. Future source edits never update final statements.
+
+Weekly DRAFT/CALCULATED/REVIEWED/FINALIZED describes earned amounts, never payment. Finalization locks snapshot and source claims. Month-crossing weeks retain per-month component allocation; monthly statements sum only their relevant finalized components and unclaimed approved monthly adjustments, with unique inclusion claims. An incomplete/unreviewed crossing week remains a disclosed closeout blocker rather than being fabricated as finalized on month-end. Monthly payment is separately UNPAID/PAID, with explicit recorded date/reference/note and actor. The application never transfers money.
+
+Corrections preserve original weekly/monthly snapshots and use approved later adjustments linked to their original statement. Commission corrections remain confidential; duplicate claim/operation keys prevent duplicate settlement. Changing a task does not generate earnings. Expected hours, overtime threshold and pay rates are independent settings, not assertions of labor-law compliance.
+
+#### Persistence and operations
+
+Minimal new entities: commission rechecks, email change requests, task assignments, weekly earning statements and shift-swap requests. Existing users/settings/preorders/compensation/monthly pay tables receive additive fields. Migrations backfill compatibility values without reset or historical final-amount changes, retain audit immutability and add owner/FK/state/inclusion constraints. Runtime grants and recovery manifests must include the new entities. Email transport/preview configuration is documented separately; no live provider or Hostinger resource is accessed during implementation.

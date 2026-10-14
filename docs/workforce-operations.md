@@ -1,6 +1,6 @@
 # Workforce operations guide
 
-Use the existing application and PostgreSQL database. This change adds no service or dependency and does not deploy anything. See [the architecture revision](ARCHITECTURE_REVISION_WORKFORCE.md) for the exact formula, cutover and retained history.
+Use the existing application and PostgreSQL database. This change adds no service or dependency and does not deploy anything. See [the architecture revision](architecture.md#architecture-revisions) for the exact formula, cutover and retained history.
 
 ## Account settings and verified email
 

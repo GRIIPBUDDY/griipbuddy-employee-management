@@ -2,7 +2,7 @@
 
 Canonical application address: **https://griipbuddy.cloud**. The existing griipbuddy.com website uses a different domain and should keep its existing configuration.
 
-This guide describes a fresh installation on the existing Hostinger KVM 2 VPS. The organization defaults to BDT and the payroll screens display ৳. Build and verify the selected immutable release image before deploying; a source archive alone is not a running release. Local users, credentials, employee records, database files and uploaded documents are not included. For an existing installation, follow DEPLOYMENT.md and BACKUP_RECOVERY.md instead of repeating bootstrap.
+This guide describes a fresh installation on the existing Hostinger KVM 2 VPS. The organization defaults to BDT and the payroll screens display ৳. Build and verify the selected immutable release image before deploying; a source archive alone is not a running release. Local users, credentials, employee records, database files and uploaded documents are not included. For an existing installation, follow [deployment.md](deployment.md) and [backup-recovery.md](backup-recovery.md) instead of repeating bootstrap.
 
 ## 1. Inspect the VPS first
 
@@ -226,6 +226,6 @@ Hostinger Compose instructions: https://www.hostinger.com/support/12040815-how-t
 
 Open https://griipbuddy.cloud/api/health/ready (expect HTTP 200) and https://griipbuddy.cloud/login. Verify HTTPS and Secure cookies through the final proxy. Sign in with the configured bootstrap email/password and change the temporary password immediately. Remove bootstrap secrets from employee.env afterwards. Create HR and employee accounts through Admin management.
 
-Verify company timezone and BDT, check the overtime threshold, test one attendance workflow and authorized document upload/download, and review a sample salary statement with expected amounts before real payroll. Configure the HTTPS email delivery adapter if production email changes are needed. Preserve both PostgreSQL and employee-document volumes; use BACKUP_RECOVERY.md for verified encrypted off-server recovery. The optional daily notification command is npm run notifications:due in a one-off container using normal runtime credentials; schedule it only after choosing the intended host scheduler.
+Verify company timezone and BDT, check the overtime threshold, test one attendance workflow and authorized document upload/download, and review a sample salary statement with expected amounts before real payroll. Configure the HTTPS email delivery adapter if production email changes are needed. Preserve both PostgreSQL and employee-document volumes; use [backup-recovery.md](backup-recovery.md) for verified encrypted off-server recovery. The optional daily notification command is npm run notifications:due in a one-off container using normal runtime credentials; schedule it only after choosing the intended host scheduler.
 
 For later updates, preserve volumes, back up the data/documents, verify migration compatibility, load a new tested image, update EMPLOYEE_APP_IMAGE, run migrations/grants if required, and recreate only employee-app with the ingress override. Never rerun bootstrap. Keep the previous compatible image and recovery set for rollback.
