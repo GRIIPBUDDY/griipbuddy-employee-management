@@ -190,9 +190,29 @@ No schema change, migration or index was needed.
   5. Check out as the employee. They leave the live list after the next refresh, and the session appears in history.
   6. As an employee, open `http://127.0.0.1:3050/api/manage/live-workforce`. Access is refused (403).
 
-## 14. Production status — NOT TESTED (not deployed)
-- **Production status:** nothing was pushed, deployed or touched on the Hostinger VPS. The change is committed only on the local feature branch.
-- **Before any release:**
-  - the usual safety gates (backup with off-server copy, restore drill, HR-app-only cutover);
-  - an owner decision, because the GitHub repository is currently **public** by your earlier choice, while this task's rules require pushing only to a private repository.
-- **Release risk:** no migration is involved, so a release would be application-only and easy to roll back.
+## 14. Production status — PASSED (deployed on the owner's instruction)
+After local verification, the owner asked for the change to be pushed and deployed. The change was pushed to GitHub (`feature/2026-10-14-monthly-configurable`, `6a25155..c42ab6b`; the repository stays public by the owner's decision, and a scan of the new commit found no secrets). Release `c42ab6bdb329` was then deployed to `griipbuddy.cloud`, project `griipbuddy-employee` only:
+- **Release contents:** application-only. The Dockerfile, compose files, runtime grants, packages, Prisma schema and migrations are byte-identical to the previous release; the image is `sha256:c374799b…`, linux/amd64.
+- **Pre-release backup** `20261014-pre-c42ab6b`: 35 tables, no change during the dump, verified. An encrypted copy is stored off the server with all checksums matching (`afe31bdd854cdcaf`).
+- **Restore drill** in an isolated drill project:
+  - all 35 table digests equal the live data;
+  - no pending migrations, and the new release's migrate step changed nothing;
+  - the new image is ready on the restored copy and sign-in loads (200);
+  - signed-out visitors are redirected from the dashboard and attendance pages (307);
+  - the live API refuses signed-out visitors (401) and returns `private, no-store`;
+  - starting the new image changed no table.
+- **Cutover:**
+  - the site was in maintenance for about a minute;
+  - a backup was taken with the app stopped (`20261014-cutover-c42ab6b`), with an encrypted off-server copy verified (`517a85c09a0ce3ea`);
+  - only the application image was swapped;
+  - all 35 tables are identical before and after;
+  - the database container, documents volume and all non-image settings are unchanged;
+  - migrations remain at 12.
+- **Live checks:**
+  - the app is healthy and readiness reports ready;
+  - signed-out visitors get 307 from `/dashboard` and `/manage/attendance`, and 401 with `private, no-store` from the live API;
+  - no errors in the app logs, the notification timer is active, `nginx -t` passes, and all 18 containers are up after the builder was stopped.
+- **Other sites:** unchanged. `rental.innovgig.com` still fails exactly as at every earlier release check; its DNS does not point at this server.
+- **Data:** every table is identical to the pre-release backup, and across all seven snapshots since 13 Oct no table ever lost rows.
+- **Not tested in production:** signing in to production to view the live list. No production credentials are used and no production records are touched. The feature was verified on the restored copy's routes and fully in local Brave tests.
+- **Rollback:** application-only. The previous image `35d03baa…` is still present and also saved at `/srv/griipbuddy-config/images/griipbuddy-employee-c0b91a5d7d0e.tar`, and the previous release directory is kept. Rolling back means switching `current` back and starting the previous image; no database step is needed.
