@@ -6,7 +6,7 @@ import { validated,uuidSchema,dateSchema } from "@/lib/validation/schemas";
 import { AppError } from "@/lib/utils/errors";
 import type { Identity } from "@/types/auth";
 import { databaseNow } from "@/features/time/clock";
-import { addDays,localDate,dateValue,dayStart } from "@/features/time/dates";
+import { addDays,localDate,dateValue,dateKey,dayStart } from "@/features/time/dates";
 import { filterSchema,ownSummarySchema } from "./validation";
 import { localWeek } from "./calculation";
 import { summary,weekCalculation } from "./summary";
@@ -31,12 +31,14 @@ export async function attendanceManagement(identity:Identity|null,query:unknown=
   return db.$transaction(async tx=>{
    const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),now=await databaseNow(tx),r=range(v,localDate(now,settings.timezone),settings.weekStartDay);
    const employees=await tx.employee.findMany({where:{...(v.employeeId?{id:v.employeeId}:{}),...(v.departmentId?{employmentPeriods:{some:{departmentId:v.departmentId,startDate:{lt:dateValue(r.until)},OR:[{endDate:null},{endDate:{gt:dateValue(r.from)}}]}}}:{})},orderBy:[{legalName:"asc"},{id:"asc"}],skip:(v.page-1)*10,take:11,select:{id:true,legalName:true,employeeNumber:true}});
-   const records=[];
-   for(const employee of employees.slice(0,10)){
-    const totals=await summary(tx,employee.id,r.from,r.until,now);
-    const weeks=[...new Set(totals.days.map(d=>localWeek(d.date,settings.weekStartDay)))];
+   const records=[],page:{employee:typeof employees[number];totals:Awaited<ReturnType<typeof summary>>}[]=[];
+   for(const employee of employees.slice(0,10))page.push({employee,totals:await summary(tx,employee.id,r.from,r.until,now)});
+   const weeksOf=(totals:Awaited<ReturnType<typeof summary>>)=>[...new Set(totals.days.map(d=>localWeek(d.date,settings.weekStartDay)))],allWeeks=[...new Set(page.flatMap(p=>weeksOf(p.totals)))];
+   // Every stored review for the page in one query (previously one query per employee-week).
+   const stored=new Map((allWeeks.length?await tx.overtimeReview.findMany({where:{employeeId:{in:page.map(p=>p.employee.id)},weekStartDate:{in:allWeeks.map(dateValue)}}}):[]).map(row=>[`${row.employeeId}:${dateKey(row.weekStartDate)}`,row]));
+   for(const {employee,totals} of page){
     const reviews=new Map<string,{status:string,potentialSeconds:number,approvedSeconds:number}>();
-    for(const week of weeks){const input=await weekCalculation(tx,employee.id,week,now),row=await tx.overtimeReview.findUnique({where:{employeeId_weekStartDate:{employeeId:employee.id,weekStartDate:dateValue(week)}}});
+    for(const week of weeksOf(totals)){const input=await weekCalculation(tx,employee.id,week,now),row=stored.get(`${employee.id}:${week}`);
      const stale=!!row && (row.status==="STALE" || row.actualSecondsSnapshot!==input.actualSeconds || input.blockers.length>0);
      reviews.set(week,{status:stale?"STALE":row?.status??"UNREVIEWED",potentialSeconds:input.potentialSeconds,approvedSeconds:row?.status==="APPROVED" && !stale?row.approvedSeconds:0});}
     for(const day of totals.days){const overtime=reviews.get(localWeek(day.date,settings.weekStartDay))!;

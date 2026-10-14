@@ -214,6 +214,12 @@ try {
   check(simultaneous.map(r => r.status).sort().join(",") === "200,201", "Concurrent same-key HTTP check-ins must produce one new fact and one replay.");
   const current = (await simultaneous[0].json()).id;
   check((await alice.json("/api/me/attendance/checkin", "POST", { ...inBody, operationKey: randomUUID() })).status === 409, "Different-key duplicate check-in must fail.");
+  // Live workforce: staff see the open session immediately and uncached; employees cannot read the list or widen it.
+  const liveResponse = await hr.request("/api/manage/live-workforce"), liveNow = await liveResponse.json();
+  check(liveResponse.ok && liveResponse.headers.get("cache-control") === "private, no-store" && liveNow.rows.some((r: { sessionId: string; employee: { id: string } }) => r.sessionId === current && r.employee.id === aliceId), "Staff live workforce lists the open session immediately, uncached.");
+  check(!liveNow.rows.some((r: { employee: { id: string } }) => r.employee.id === bobId) && !/salary|commission|passwordHash|bank/i.test(JSON.stringify(liveNow)), "Live workforce lists only working people and no private pay or account data.");
+  for (const query of ["", `?employeeId=${aliceId}`, "?status=ATTENTION"]) { const denied = await alice.request(`/api/manage/live-workforce${query}`); check(denied.status === 403 && !(await denied.text()).includes("HTTP"), `Employees cannot read the live workforce list (${query || "no query"}).`); }
+  check((await hr.request(`/api/manage/live-workforce?employeeId=${bobId}`)).status === 400, "Unknown live workforce selectors are rejected.");
   const workingPage = await alice.request("/me/schedule"), workingHtml = await workingPage.text();
   check(workingPage.ok && workingHtml.includes("Currently working") && workingHtml.includes("Check out") && !workingHtml.includes("Bob HTTP Private"), "My Schedule must immediately display active session and checkout.");
   check((await alice.request("/me/attendance")).ok && (await hr.request(`/manage/employees/${aliceId}/schedule`)).ok && (await hr.request(`/manage/employees/${aliceId}/attendance`)).ok, "Own/staff schedule and attendance views must render actual records.");
@@ -223,6 +229,7 @@ try {
   const outBody = { sessionId: current, operationKey: randomUUID() };
   const closed = await Promise.all([alice.json("/api/me/attendance/checkout", "POST", outBody), alice.json("/api/me/attendance/checkout", "POST", outBody)]);
   check(closed.every(r => r.ok), "Concurrent same-key checkout must close only the selected session.");
+  check(!(await (await hr.request("/api/manage/live-workforce")).json()).rows.some((r: { sessionId: string }) => r.sessionId === current), "Checkout removes the employee from the live workforce list.");
   const detail = await (await alice.request(`/api/me/attendance/${current}`)).json();
   check(detail.status === "COMPLETED" && detail.durationSeconds > 0 && detail.checkoutAt && !JSON.stringify(detail).match(/OperationKey|createdBy|userId/), "Attendance details must show derived completed duration without private metadata.");
   check((await alice.json("/api/me/attendance/checkout", "POST", { ...outBody, operationKey: randomUUID() })).status === 409, "Already-closed normal checkout must fail.");
@@ -356,6 +363,7 @@ try {
   check(adminDash.cards.find((c:{label:string,value:number})=>c.label==="Total employees").value===await db.employee.count(),"Admin dashboard employee count matches the database.");
   check(!hrDash.cards.some((c:{label:string})=>/salary|commission|warning/i.test(c.label)),"HR dashboard omits ungranted sensitive summaries.");
   check((await alice.request("/api/manage/dashboard")).status===403,"Employee cannot read a management dashboard API.");
+  check(typeof adminDash.live?.summary?.working==="number"&&adminDash.live.summary.working===hrDash.live.summary.working,"Admin and HR dashboards carry the same live workforce figures.");
   const personal3g=await(await alice.request("/api/me/dashboard")).json();check(personal3g.schedule.employee.id===aliceId&&!JSON.stringify(personal3g).includes("Bob HTTP Private"),"Personal dashboard uses only the authenticated employee.");
   check(personal3g.salary[0].finalAmount===finalized.finalAmount,"Personal dashboard uses finalized stored pay.");
   for(const kind of ["employees","attendance","overtime","leave","salary","commissions","documents"]){

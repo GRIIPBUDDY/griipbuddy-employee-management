@@ -18,19 +18,22 @@ import { employeeCte } from "./employees";
 import { taskData } from "@/features/tasks/service";
 import { enabledModules } from "@/features/settings/config";
 import { incidentsAwaitingReview } from "@/features/people-operations/incidents";
+import { liveQuerySchema, liveWorkforceData } from "@/features/time/live";
 export async function managementDashboard(identity:Identity|null) {
  return securityBoundary(identity,async actor=>{
   assertRole(actor,["ADMIN","HR_MANAGER"]);const on=await enabledModules();
   const data=await db.$transaction(async tx=>{
    const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1},select:{timezone:true}}),now=await databaseNow(tx),today=localDate(now,settings.timezone),from=dayStart(today,settings.timezone),until=dayStart(addDays(today,1),settings.timezone);
-   const [employeeCounts,todayAttendance,leave,corrections,overtime,salary,documents,performance]=await Promise.all([
+   const [employeeCounts,todayAttendance,leave,corrections,overtime,salary,documents,performance,live]=await Promise.all([
     tx.$queryRaw<{total:bigint;active:bigint}[]>(Prisma.sql`WITH ${employeeCte(today)} SELECT count(*) AS total,count(*) FILTER(WHERE employment_status='ACTIVE') AS active FROM employee_info`),
     tx.$queryRaw<{present:bigint;completed:bigint;open:bigint;incomplete:bigint}[]>(Prisma.sql`SELECT count(DISTINCT employee_id) AS present,count(*) FILTER(WHERE checkout_at IS NOT NULL) AS completed,count(*) FILTER(WHERE checkout_at IS NULL) AS open,count(*) FILTER(WHERE checkout_at IS NULL AND (scheduled_end_at IS NULL OR scheduled_end_at<${now})) AS incomplete FROM attendance_sessions WHERE voided_at IS NULL AND checkin_at<${until} AND (checkout_at>${from} OR checkout_at IS NULL)`),
     tx.$queryRaw<{pending:bigint;onleave:bigint}[]>(Prisma.sql`SELECT count(*) FILTER(WHERE status='PENDING') AS pending,count(DISTINCT employee_id) FILTER(WHERE status='APPROVED' AND start_at<${until} AND end_at>${from}) AS onleave FROM leave_requests`),
     tx.attendanceCorrection.count({where:{status:"PENDING"}}),tx.overtimeReview.count({where:{status:{in:["PENDING","STALE"]}}}),
     actor.role==="ADMIN"?tx.salaryPeriod.count({where:{status:{in:["CALCULATED","REVIEWED","APPROVED"]}}}):Promise.resolve(null),
     tx.employeeDocument.count({where:{deletedAt:null,expiresOn:{gt:dateValue(today),lte:dateValue(addDays(today,30))}}}),
-    tx.performanceReview.count({where:{publishedAt:null}})
+    tx.performanceReview.count({where:{publishedAt:null}}),
+    // Who is working right now, from open sessions regardless of the date they started (same snapshot as the cards).
+    liveWorkforceData(tx,liveQuerySchema.parse({}),{now,timezone:settings.timezone})
    ]);
    const dayQuery="range=today";
    const cards=[
@@ -47,7 +50,7 @@ export async function managementDashboard(identity:Identity|null) {
     ...(on.incidents?[{label:"Incidents awaiting review",value:await incidentsAwaitingReview(actor),href:"/manage/incidents?status=UNDER_REVIEW"}]:[]),
     ...(salary===null?[]:[{label:"Salary periods awaiting closeout",value:salary,href:"/manage/salary"}])
    ];
-   return {today,timezone:settings.timezone,cards,attendance:{completed:Number(todayAttendance[0].completed),open:Number(todayAttendance[0].open)}};
+   return {today,timezone:settings.timezone,cards,attendance:{completed:Number(todayAttendance[0].completed),open:Number(todayAttendance[0].open)},live};
   },{isolationLevel:"RepeatableRead"});
   return {...data,recent:(await auditData(identity)).records.slice(0,5)};
  });

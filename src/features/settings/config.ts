@@ -30,3 +30,8 @@ export async function assertOption(client: Database, list: OptionList, code: str
   if (previous && previous === code) return;
   if (!await client.optionItem.count({ where: { list, code, isActive: true } })) throw new AppError(400, "OPTION_INVALID", "Choose an available option from the list.");
 }
+/** What the app shell needs from settings on every page — company name, logo revision and module switches — in one read. */
+export async function shellSettings() {
+  const s = await db.organizationSettings.findUnique({ where: { id: 1 }, select: { companyName: true, logoRevision: true, enabledModules: true } });
+  return { companyName: s?.companyName ?? "GriipBuddy People", logoRevision: s?.logoRevision ?? 0, modules: moduleState(s?.enabledModules) };
+}
