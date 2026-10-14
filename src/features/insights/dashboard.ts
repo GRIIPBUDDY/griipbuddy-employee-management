@@ -17,6 +17,7 @@ import { auditData } from "./audit";
 import { employeeCte } from "./employees";
 import { taskData } from "@/features/tasks/service";
 import { enabledModules } from "@/features/settings/config";
+import { incidentsAwaitingReview } from "@/features/people-operations/incidents";
 export async function managementDashboard(identity:Identity|null) {
  return securityBoundary(identity,async actor=>{
   assertRole(actor,["ADMIN","HR_MANAGER"]);const on=await enabledModules();
@@ -43,6 +44,7 @@ export async function managementDashboard(identity:Identity|null) {
     {label:"Overtime awaiting review",value:overtime,href:"/manage/overtime"},
     {label:"Documents approaching expiry",value:documents,href:"/manage/reports/documents?status=APPROACHING"},
     ...(on.performance?[{label:"Draft performance reviews",value:performance,href:"/manage/performance?status=DRAFT"}]:[]),
+    ...(on.incidents?[{label:"Incidents awaiting review",value:await incidentsAwaitingReview(actor),href:"/manage/incidents?status=UNDER_REVIEW"}]:[]),
     ...(salary===null?[]:[{label:"Salary periods awaiting closeout",value:salary,href:"/manage/salary"}])
    ];
    return {today,timezone:settings.timezone,cards,attendance:{completed:Number(todayAttendance[0].completed),open:Number(todayAttendance[0].open)}};
