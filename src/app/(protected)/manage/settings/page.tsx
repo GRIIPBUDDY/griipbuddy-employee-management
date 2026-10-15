@@ -23,6 +23,9 @@ import { TableContainer } from "@/components/ui/table";
 import { LogoUpload } from "@/components/settings/logo-upload";
 import { ColorField } from "@/components/settings/color-field";
 import { displayInstant } from "@/features/time/dates";
+import { warningDeductionSettings } from "@/features/performance/service";
+import { performanceAction } from "@/features/performance/actions";
+import { severityLabels, weights, workTimeSplit, explainAtOrBelow } from "@/features/performance/policy";
 type Option = Awaited<ReturnType<typeof organizationConfig>>["options"][number];
 function OptionFields({ list, option }: { list: string; option?: Option }) {
   const a = option?.attributes ?? {};
@@ -43,7 +46,7 @@ function describe(list: string, o: Option) {
 export default async function Settings() {
   const identity = await getIdentity();
   await pageResult(securityBoundary(identity, async actor => assertRole(actor, ["ADMIN"])));
-  const [settings, backup, config] = await Promise.all([pageResult(organizationSummary(identity)), pageResult(backupStatus(identity)), pageResult(organizationConfig(identity))]);
+  const [settings, backup, config, deductions] = await Promise.all([pageResult(organizationSummary(identity)), pageResult(backupStatus(identity)), pageResult(organizationConfig(identity)), pageResult(warningDeductionSettings(identity))]);
   const organization = <Card><CardHeader><CardTitle>Organization</CardTitle><CardDescription>Business dates follow the organization timezone. Money defaults to Bangladeshi Taka (BDT, ৳).</CardDescription></CardHeader><CardContent>
     <ActionForm action={settingsAction} submitLabel="Save settings" confirmation={{ title: "Save organization settings?", description: "These defaults affect future records. Existing records keep their stored currency, timezone snapshots and rules." }}><div className="space-y-6">
       <input type="hidden" name="companyName" value={settings.companyName} /><input type="hidden" name="earlyCheckinMinutes" value={settings.earlyCheckinMinutes} />
@@ -82,8 +85,12 @@ export default async function Settings() {
   const backupTab = <Card><CardHeader><CardTitle>Verified offsite backup</CardTitle><CardDescription>Recorded by the backup operator after encrypted transfer and integrity verification. Local dumps do not count.</CardDescription></CardHeader><CardContent>
     <Alert tone={backup.status === "CURRENT" ? "success" : "warning"} title={backup.status === "NEVER_VERIFIED" ? "No verified recovery set recorded" : backup.status === "STALE" ? "Last verified recovery set is older than 24 hours" : "Verified within the last 24 hours"}>{backup.lastSuccessfulBackupAt ? `Recovery set time: ${displayInstant(backup.lastSuccessfulBackupAt, settings.timezone)}` : "Contact the backup operator."}</Alert>
   </CardContent></Card>;
+  const ratingsTab = <Card><CardHeader><CardTitle>Performance rating rules</CardTitle><CardDescription>Monthly rating = HR/Admin assessment (0–5, steps of 0.5; a score of {explainAtOrBelow} or lower needs a comment) + automated score (0–5): work time {weights.workTime.toFixed(2)} ({Math.round(workTimeSplit.minutes * 100)} % minutes completed, {Math.round(workTimeSplit.days * 100)} % days attended), tasks {weights.tasks.toFixed(2)}, targets {weights.targets.toFixed(2)}. A component without data is not applicable and its weight is shared by the others.</CardDescription></CardHeader>
+    <CardContent><ActionForm action={performanceAction} submitLabel="Save deductions" confirmation={{ title: "Save warning deductions?", description: "Applies to monthly ratings that are not yet finalized. Finalized ratings keep the deductions they used.", label: "Save" }}><input type="hidden" name="kind" value="deductions" />
+      <FormSection title="Warning deductions" description="Points deducted from the automated score for each issued, released and unrevoked warning in the month. The automated score never falls below zero; the HR/Admin assessment and salary are never affected."><FieldGrid columns={4}>{(Object.keys(severityLabels) as (keyof typeof severityLabels)[]).map(key => <Field key={key} label={severityLabels[key]} name={key} type="number" min="0" max="5" step="0.01" required defaultValue={deductions[key].toFixed(2)} />)}</FieldGrid></FormSection>
+    </ActionForm></CardContent></Card>;
   return <>
     <PageHeader title="Settings" description="Organization-wide configuration. Changes apply to future records; history keeps the rules it was created with." />
-    <Tabs label="Settings sections" items={[{ label: "Branding", id: "branding", content: brandingTab }, { label: "Rules", id: "rules", content: rules }, { label: "Modules", id: "modules", content: moduleTab }, { label: "Lists", id: "lists", content: lists }, { label: "Overtime", id: "overtime", content: overtime }, { label: "Organization", id: "organization", content: organization }, { label: "Backup", id: "backup", content: backupTab }]} />
+    <Tabs label="Settings sections" items={[{ label: "Branding", id: "branding", content: brandingTab }, { label: "Rules", id: "rules", content: rules }, { label: "Modules", id: "modules", content: moduleTab }, { label: "Lists", id: "lists", content: lists }, { label: "Overtime", id: "overtime", content: overtime }, { label: "Ratings", id: "ratings", content: ratingsTab }, { label: "Organization", id: "organization", content: organization }, { label: "Backup", id: "backup", content: backupTab }]} />
   </>;
 }

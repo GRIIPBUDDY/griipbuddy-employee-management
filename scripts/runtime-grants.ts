@@ -8,7 +8,7 @@ try {
   await client.query(`REVOKE CREATE ON SCHEMA public FROM PUBLIC;
     GRANT USAGE ON SCHEMA public TO employee_runtime;
     REVOKE ALL ON ALL TABLES IN SCHEMA public FROM employee_runtime;
-    GRANT SELECT, INSERT, UPDATE ON users, employees, employment_periods, organization_settings, employee_documents, employee_activities, departments, positions, work_schedules, schedule_slots, attendance_sessions, attendance_corrections, overtime_reviews, calendar_days, leave_requests, notifications, compensation_rates, salary_periods, salary_calculations, salary_adjustments, preorders, performance_reviews, disciplinary_records, assets, asset_assignments, commission_rechecks, email_change_requests, task_assignments, weekly_earning_statements, shift_swap_requests, option_items, leave_allowances, incident_records TO employee_runtime;
+    GRANT SELECT, INSERT, UPDATE ON users, employees, employment_periods, organization_settings, employee_documents, employee_activities, departments, positions, work_schedules, schedule_slots, attendance_sessions, attendance_corrections, overtime_reviews, calendar_days, leave_requests, notifications, compensation_rates, salary_periods, salary_calculations, salary_adjustments, preorders, performance_reviews, disciplinary_records, assets, asset_assignments, commission_rechecks, email_change_requests, task_assignments, weekly_earning_statements, shift_swap_requests, option_items, leave_allowances, incident_records, missing_time_records, performance_targets, performance_assessments TO employee_runtime;
     GRANT SELECT, INSERT ON audit_logs TO employee_runtime;
     REVOKE ALL ON TABLE _prisma_migrations FROM employee_runtime;`);
   console.log("Runtime grants applied; audit history is append-only for the application role.");

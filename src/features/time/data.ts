@@ -14,6 +14,7 @@ import { occurrence, checkinEligibility, type SchedulePattern, type Occurrence }
 import { scheduleReadSchema, historyReadSchema } from "./validation";
 import { addDays, dateKey, dateValue, localDate, dayStart, weekday } from "./dates";
 import { resolveRange } from "@/lib/utils/date-range";
+import { interval, intersect, seconds, subtract } from "@/features/review/calculation";
 const attendanceSelect = { id: true, scheduleSlotId: true, employmentPeriodId: true, workDate: true, scheduledStartAt: true, scheduledEndAt: true, checkinAt: true, checkoutAt: true,
   timezoneSnapshot: true, earlyCheckinMinutesSnapshot: true, earliestCheckinAt: true, source: true, revision: true, voidedAt: true, createdAt: true };
 type SessionRecord = Prisma.AttendanceSessionGetPayload<{ select: typeof attendanceSelect }>;
@@ -69,11 +70,13 @@ export async function employeeSchedule(identity: Identity | null, inputEmployeeI
     }));
     const fromInstant = dayStart(week, settings.timezone), untilInstant = dayStart(weekEnd, settings.timezone);
     const actualIntervals = await db.attendanceSession.findMany({ where: { employeeId, voidedAt: null, checkoutAt: { gt: fromInstant }, checkinAt: { lt: untilInstant } }, select: { checkinAt: true, checkoutAt: true } });
+    // Confirmed time away while checked in is not worked time (the same rule payroll uses).
+    const away = await db.missingTimeRecord.findMany({ where: { employeeId, status: "CONFIRMED", startAt: { lt: untilInstant }, endAt: { gt: fromInstant } }, select: { startAt: true, endAt: true } });
     const hasAssignedToday=live.occurrences.some(o=>o.scheduledStartAt<dayStart(addDays(today,1),settings.timezone) && o.eligibleEndAt>dayStart(today,settings.timezone));
     return { canUnscheduled:own && actor.employmentActive && actor.accountStatus!=="ON_HOLD" && !active && !hasAssignedToday,operational:actor.accountStatus!=="ON_HOLD",standardWeeklyHours:((settings.standardHoursVersions as {effectiveFrom:string;hours:number}[]).filter(v=>v.effectiveFrom<=week).at(-1)?.hours??48),employee, now, today, timezone: settings.timezone, earlyCheckinMinutes: settings.earlyCheckinMinutes, week, weekEnd, next,
       periods, active: active ? sessionView(active, now) : null, recent: recent.map(s => sessionView(s, now)), versions,
       scheduledSeconds: weekly.occurrences.reduce((sum, o) => sum + clippedSeconds(o.scheduledStartAt, o.eligibleEndAt, fromInstant, untilInstant), 0),
-      actualSeconds: actualIntervals.reduce((sum, s) => sum + clippedSeconds(s.checkinAt, s.checkoutAt!, fromInstant, untilInstant), 0),
+      actualSeconds: seconds(intersect(subtract(actualIntervals.map(s => interval(s.checkinAt, s.checkoutAt!)), away.map(a => interval(a.startAt, a.endAt))), [interval(fromInstant, untilInstant)])),
       days: Array.from({ length: 7 }, (_, i) => { const date = addDays(week, i); return { date, periods: weekly.occurrences.filter(o => o.workDate === date), carryover: weekly.occurrences.filter(o => o.workDate === addDays(date, -1) && o.eligibleEndAt > dayStart(date, settings.timezone)) }; }),
       issues: [...live.issues, ...weekly.issues].filter((issue, i, all) => all.findIndex(other => other.date === issue.date && other.message === issue.message) === i) };
   });

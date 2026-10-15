@@ -35,6 +35,7 @@ A self-hosted HR and workforce system for small and mid-sized organizations. It 
 - Check-in and checkout from the employee portal, timed by the server clock in the organization's timezone, with a configurable early check-in window
 - A **live "Currently working" view** on the dashboard and the Attendance page; it refreshes automatically and flags past-end, unscheduled and incomplete sessions
 - Attendance corrections that employees request and staff approve, plus unscheduled work and shift swaps
+- **Work-time accounting:** scheduled payable time against verified work for every day. Late arrival, early departure and absence are calculated automatically; staff can record time an employee was away while still checked in. Missing time is unpaid only once confirmed, and never deducted twice.
 
 **Overtime and leave**
 - Weekly overtime calculated from completed work. Nothing is payable until a reviewer approves it.
@@ -45,6 +46,12 @@ A self-hosted HR and workforce system for small and mid-sized organizations. It 
 - Effective-dated compensation, bonuses, allowances and deductions, and optional pre-order commissions
 - PDF payslips, a payment register, and a CSV export for bank or mobile payments
 - Exact decimal arithmetic. Finalized salaries never change; corrections go into a later month.
+
+**Performance**
+- Weekly and monthly **targets**, assigned to one or many employees, with recorded results
+- A **monthly rating out of 10**: an HR/Admin assessment out of 5 plus an automated score out of 5 from work time, tasks completed on time and targets, minus configurable deductions for confirmed warnings
+- **Quarterly ratings** (the average of three finalized months) and rankings
+- Finalized ratings are frozen snapshots with every input shown; employees see their own breakdown
 
 **HR records**
 - Performance reviews, warnings with employee acknowledgement, and incident and performance records with employee responses
@@ -122,7 +129,8 @@ Everything organization-specific is set in the app, not in code. Sign in as an a
 |---|---|
 | Branding | Display name, legal name and address (printed on PDFs), brand color and logo |
 | Rules | Timezone, currency, early check-in window, late grace period, working days, leave counting and balance policy, salary payment day |
-| Modules | Turn optional areas on or off: tasks, shift swaps, commissions, performance, warnings, incident records, assets, work records |
+| Modules | Turn optional areas on or off: tasks, shift swaps, commissions, performance reviews, ratings and targets, warnings, incident records, assets, work records |
+| Ratings | Rating points deducted per warning type (notice, warning, serious, final) |
 | Lists | Leave types (paid or unpaid, with a yearly allowance), salary adjustment types, document types, asset types, employment types |
 | Overtime | Weekly overtime threshold, versioned from a future week |
 

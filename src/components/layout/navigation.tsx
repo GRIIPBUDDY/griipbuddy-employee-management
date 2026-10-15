@@ -2,13 +2,13 @@
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { ClipboardCheck, Search, LayoutDashboard, UsersRound, CalendarDays, Clock3, Wallet, ClipboardList, Bell, Settings2, FileText, ShieldCheck, Building2, BriefcaseBusiness, Palmtree, Boxes, LoaderCircle, Timer, FilePenLine, ArrowLeftRight, CalendarRange, Receipt, SlidersHorizontal, BadgePercent, Star, TriangleAlert, BarChart3, ScrollText, UserRound, NotebookText, ChevronDown } from "lucide-react";
+import { ClipboardCheck, Search, LayoutDashboard, UsersRound, CalendarDays, Clock3, Wallet, ClipboardList, Bell, Settings2, FileText, ShieldCheck, Building2, BriefcaseBusiness, Palmtree, Boxes, LoaderCircle, Timer, FilePenLine, ArrowLeftRight, CalendarRange, Receipt, SlidersHorizontal, BadgePercent, Star, TriangleAlert, BarChart3, ScrollText, UserRound, NotebookText, ChevronDown, Hourglass, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 export type NavItem = { href: string; label: string; icon?: string; badge?: number };
 export type NavGroup = { label: string; items: NavItem[]; collapsible?: boolean };
 const icons: Record<string, typeof FileText> = { dashboard: LayoutDashboard, notifications: Bell, employees: UsersRound, departments: Building2, positions: BriefcaseBusiness, documents: FileText, records: NotebookText, accounts: ShieldCheck,
   schedule: CalendarDays, attendance: Clock3, corrections: FilePenLine, overtime: Timer, swaps: ArrowLeftRight, tasks: ClipboardList, leave: Palmtree, weekly: CalendarRange, salary: Wallet, adjustments: SlidersHorizontal,
-  percent: BadgePercent, performance: Star, warnings: TriangleAlert, incidents: ClipboardCheck, assets: Boxes, reports: BarChart3, audit: ScrollText, settings: Settings2, profile: UserRound, receipt: Receipt };
+  percent: BadgePercent, performance: Star, warnings: TriangleAlert, incidents: ClipboardCheck, assets: Boxes, reports: BarChart3, audit: ScrollText, settings: Settings2, profile: UserRound, receipt: Receipt, workTime: Hourglass, ratings: Trophy };
 export function activeNavigation(items: NavItem[], path: string) { return items.filter(item => path === item.href || path.startsWith(item.href + "/")).sort((a, b) => b.href.length - a.href.length)[0]; }
 function NavigationProgress() { const { pending } = useLinkStatus(); return pending ? <LoaderCircle aria-label="Loading page" size={14} className="ml-auto shrink-0 animate-spin text-muted-foreground" /> : null; }
 export function Navigation({ groups }: { groups: NavGroup[] }) {

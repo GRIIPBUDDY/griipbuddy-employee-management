@@ -31,6 +31,12 @@ async function sourceHref(client:Database,actor:Actor,row:{eventType:string,sour
   if(staff && actor.employeeId===row.employeeId && actor.role==="HR_MANAGER")return null;
   return await client.incidentRecord.findFirst({where:{...where,...(!staff?{employeeVisible:true}:{})},select:{id:true}})?(staff?`/manage/incidents/${row.sourceId}`:`/me/incidents?id=${row.sourceId}`):null;
  }
+ if(row.sourceType==="missing_time_records") {
+  if(staff && actor.employeeId===row.employeeId && actor.role==="HR_MANAGER")return null;
+  return await client.missingTimeRecord.findFirst({where,select:{id:true}})?(staff?`/manage/work-time/records?employeeId=${row.employeeId}`:"/me/work-time"):null;
+ }
+ if(row.sourceType==="performance_targets")return !staff && await client.performanceTarget.findFirst({where:{...where,status:"ACTIVE"},select:{id:true}})?"/me/ratings":null;
+ if(row.sourceType==="performance_assessments")return !staff && await client.performanceAssessment.findFirst({where:{...where,status:"FINALIZED"},select:{id:true}})?"/me/ratings":null;
  if(row.sourceType==="asset_assignments")return await client.assetAssignment.findFirst({where,select:{id:true}})?`${prefix}/assets?assignmentId=${row.sourceId}`:null;
  if(row.sourceType==="preorders") {
   if(staff?!(actor.role==="ADMIN" || actor.role==="HR_MANAGER" && actor.canManageCommissions):!actor.preorderCommissionEnabled)return null;
