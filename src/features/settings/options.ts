@@ -6,6 +6,7 @@ export const modules = [
   { key: "performance", label: "Performance reviews", description: "Published performance reviews on employee records.", default: true, paths: ["/manage/performance", "/me/performance"] },
   { key: "warnings", label: "Warnings & notices", description: "Disciplinary notices with employee acknowledgement.", default: true, paths: ["/manage/warnings", "/me/warnings"] },
   { key: "incidents", label: "Incident & performance records", description: "Mistakes, incidents, corrective actions and positive records, with employee responses.", default: true, paths: ["/manage/incidents", "/me/incidents"] },
+  { key: "ratings", label: "Performance ratings & targets", description: "Weekly and monthly targets, monthly ratings out of 10 and quarterly rankings.", default: true, paths: ["/manage/ratings", "/manage/targets", "/me/ratings"] },
   { key: "assets", label: "Assets", description: "Company equipment inventory and assignments.", default: true, paths: ["/manage/assets", "/me/assets"] },
   { key: "workRecords", label: "Work records", description: "Achievements, training and notes on the employee timeline.", default: true, paths: ["/manage/work-records", "/me/work-records"] },
   { key: "weeklyEarnings", label: "Weekly earning statements (legacy)", description: "Only for months that already use weekly statements. Salary is monthly.", default: false, paths: ["/manage/weekly-earnings", "/me/weekly-earnings"] },

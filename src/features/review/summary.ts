@@ -11,16 +11,23 @@ export async function summary(tx:Database, employeeId:string, from:string, until
  const low=dateValue(addDays(from,-1)),high=dateValue(addDays(until,1));
  // Resolve full overnight occurrences and their coverage before clipping reporting quantities.
  const sourceWindow=interval(dayStart(addDays(from,-1),zone),dayStart(addDays(until,1),zone));
- const [patterns,sessions,leaves,holidays,pending,periods]=await Promise.all([
+ const [patterns,sessions,leaves,holidays,pending,periods,missingTime]=await Promise.all([
   tx.workSchedule.findMany({where:{employeeId,supersededAt:null,effectiveFrom:{lt:dateValue(until)},OR:[{effectiveUntil:null},{effectiveUntil:{gt:low}}]},include:patternInclude,orderBy:{effectiveFrom:"asc"}}),
   tx.attendanceSession.findMany({orderBy:[{checkinAt:"asc"},{id:"asc"}],where:{employeeId,voidedAt:null,checkinAt:{lt:new Date(sourceWindow.end*1000)},OR:[{checkoutAt:null},{checkoutAt:{gt:new Date(sourceWindow.start*1000)}}]},select:{id:true,checkinAt:true,checkoutAt:true,scheduledEndAt:true,workDate:true,source:true,revision:true,employmentPeriodId:true}}),
   tx.leaveRequest.findMany({orderBy:[{startAt:"asc"},{id:"asc"}],where:{employeeId,status:"APPROVED",startAt:{lt:new Date(sourceWindow.end*1000)},endAt:{gt:new Date(sourceWindow.start*1000)}}}),
   tx.calendarDay.findMany({orderBy:{localDate:"asc"},where:{localDate:{gte:low,lt:high}}}),
   tx.attendanceCorrection.findMany({where:{employeeId,status:"PENDING"},select:{id:true,sessionId:true,workDate:true,proposedCheckinAt:true,proposedCheckoutAt:true}}),
-  tx.employmentPeriod.findMany({where:{employeeId}})
+  tx.employmentPeriod.findMany({where:{employeeId}}),
+  tx.missingTimeRecord.findMany({orderBy:[{startAt:"asc"},{id:"asc"}],where:{employeeId,status:{in:["CONFIRMED","PENDING"]},startAt:{lt:new Date(sourceWindow.end*1000)},endAt:{gt:new Date(sourceWindow.start*1000)}},select:{id:true,startAt:true,endAt:true,status:true,revision:true}})
  ]);
- const actualSource=union(sessions.filter(s=>s.checkoutAt).map(s=>interval(s.checkinAt,s.checkoutAt!)));
- const openSource=union(sessions.filter(s=>!s.checkoutAt).map(s=>interval(s.checkinAt,new Date(Math.max(now.getTime(),s.checkinAt.getTime()+1000)))));
+ const recordedWork=union(sessions.filter(s=>s.checkoutAt).map(s=>interval(s.checkinAt,s.checkoutAt!)));
+ const recordedOpen=union(sessions.filter(s=>!s.checkoutAt).map(s=>interval(s.checkinAt,new Date(Math.max(now.getTime(),s.checkinAt.getTime()+1000)))));
+ // Confirmed time away while checked in is removed from verified work. Subtracting from the union of worked time
+ // means an interval that was not worked anyway removes nothing, so missing time is never deducted twice. Pending
+ // reports change nothing until reviewed; they only block final calculations.
+ const confirmedMissing=union(missingTime.filter(m=>m.status==="CONFIRMED").map(m=>interval(m.startAt,m.endAt))),pendingMissing=missingTime.filter(m=>m.status==="PENDING");
+ const actualSource=subtract(recordedWork,confirmedMissing),openSource=subtract(recordedOpen,confirmedMissing);
+ const removedWork=intersect(union([...recordedWork,...recordedOpen]),confirmedMissing),pendingWork=intersect(union([...recordedWork,...recordedOpen]),union(pendingMissing.map(m=>interval(m.startAt,m.endAt))));
  const actual=intersect(actualSource,[window]),open=intersect(openSource,[window]);
  const scheduled:Interval[]=[],required:Interval[]=[],late:Interval[]=[],early:Interval[]=[],endedMissing:Interval[]=[];
  const holidayCredit:Interval[]=[];
@@ -63,12 +70,15 @@ export async function summary(tx:Database, employeeId:string, from:string, until
    pendingCorrections:pending.filter(r=>requestTouches(r,day,date)).length,
    openCount:day.start<nowSeconds?daySessions.filter(s=>!s.checkoutAt).length:0,
    incompleteCount:day.start<nowSeconds?daySessions.filter(s=>!s.checkoutAt && (s.scheduledEndAt?now>s.scheduledEndAt:true)).length:0,
+   confirmedMissingSeconds:seconds(intersect(removedWork,[day])),pendingMissingSeconds:seconds(intersect(pendingWork,[day])),
+   pendingMissingReviews:pendingMissing.filter(m=>seconds(intersect([interval(m.startAt,m.endAt)],[day]))>0).length,paidAbsenceSeconds:seconds(intersect(paidAbsence,[day])),
    sessionIds:daySessions.map(s=>s.id)});
  }
  const reportingSessions=sessions.filter(s=>s.checkinAt.getTime()/1000<window.end && (!s.checkoutAt || s.checkoutAt.getTime()/1000>window.start));
- return {from,until,timezone:zone,days,paidAbsence,sourceFacts:includeSources?{attendance:sessions.map(s=>({...s,checkinAt:s.checkinAt.toISOString(),checkoutAt:s.checkoutAt?.toISOString()??null,scheduledEndAt:s.scheduledEndAt?.toISOString()??null,workDate:dateKey(s.workDate)})),schedules:patterns.map(p=>({id:p.id,employmentPeriodId:p.employmentPeriodId,effectiveFrom:dateKey(p.effectiveFrom),effectiveUntil:p.effectiveUntil?dateKey(p.effectiveUntil):null,revision:p.revision,holidayWorkRequired:p.holidayWorkRequired,slots:p.slots.map(({id,weekday,startMinute,endMinute,endDayOffset})=>({id,weekday,startMinute,endMinute,endDayOffset}))})),leave:leaves.map(l=>({id:l.id,employmentPeriodId:l.employmentPeriodId,type:l.type,startAt:l.startAt.toISOString(),endAt:l.endAt.toISOString(),revision:l.revision})),holidays:holidays.map(h=>({id:h.id,date:dateKey(h.localDate),revision:h.revision}))}:undefined,actual:union(actual),scheduled:union(scheduled),actualSeconds:seconds(actual),scheduledSeconds:seconds(scheduled),requiredSeconds:seconds(required),
+ return {from,until,timezone:zone,days,paidAbsence,sourceFacts:includeSources?{attendance:sessions.map(s=>({...s,checkinAt:s.checkinAt.toISOString(),checkoutAt:s.checkoutAt?.toISOString()??null,scheduledEndAt:s.scheduledEndAt?.toISOString()??null,workDate:dateKey(s.workDate)})),schedules:patterns.map(p=>({id:p.id,employmentPeriodId:p.employmentPeriodId,effectiveFrom:dateKey(p.effectiveFrom),effectiveUntil:p.effectiveUntil?dateKey(p.effectiveUntil):null,revision:p.revision,holidayWorkRequired:p.holidayWorkRequired,slots:p.slots.map(({id,weekday,startMinute,endMinute,endDayOffset})=>({id,weekday,startMinute,endMinute,endDayOffset}))})),leave:leaves.map(l=>({id:l.id,employmentPeriodId:l.employmentPeriodId,type:l.type,startAt:l.startAt.toISOString(),endAt:l.endAt.toISOString(),revision:l.revision})),holidays:holidays.map(h=>({id:h.id,date:dateKey(h.localDate),revision:h.revision})),missingTime:missingTime.filter(m=>m.status==="CONFIRMED").map(m=>({id:m.id,startAt:m.startAt.toISOString(),endAt:m.endAt.toISOString(),revision:m.revision}))}:undefined,actual:union(actual),scheduled:union(scheduled),actualSeconds:seconds(actual),scheduledSeconds:seconds(scheduled),requiredSeconds:seconds(required),
   pendingCorrections:pending.filter(r=>requestTouches(r,window) || dateKey(r.workDate)>=from && dateKey(r.workDate)<until).length,
-  openCount:reportingSessions.filter(s=>!s.checkoutAt).length,leaveConflictSeconds,outsideEmploymentSeconds,issues};
+  openCount:reportingSessions.filter(s=>!s.checkoutAt).length,leaveConflictSeconds,outsideEmploymentSeconds,issues,
+  confirmedMissingSeconds:seconds(intersect(removedWork,[window])),pendingMissingReviews:pendingMissing.filter(m=>seconds(intersect([interval(m.startAt,m.endAt)],[window]))>0).length};
 }
 export async function weekCalculation(tx:Database,employeeId:string,date:string,now:Date) {
  const settings=await tx.organizationSettings.findUniqueOrThrow({where:{id:1}}),week=localWeek(date,settings.weekStartDay),end=addDays(week,7);
@@ -76,6 +86,6 @@ export async function weekCalculation(tx:Database,employeeId:string,date:string,
  const thresholdCandidates=tail(totals.actual,Math.max(0,totals.actualSeconds-policy.thresholdSeconds));
  const candidates=week>=localWeek(dateKey(settings.earningsEffectiveFrom),settings.weekStartDay)?union([...thresholdCandidates,...subtract(totals.actual,totals.scheduled)]):thresholdCandidates;
  const potentialSeconds=seconds(candidates);
- const blockers=[...(totals.openCount?["Missing checkout"]:[]),...(totals.pendingCorrections?["Pending corrections"]:[]),...(totals.leaveConflictSeconds?["Work overlaps approved leave"]:[]),...(totals.outsideEmploymentSeconds?["Work extends outside employment"]:[]),...totals.issues];
+ const blockers=[...(totals.openCount?["Missing checkout"]:[]),...(totals.pendingCorrections?["Pending corrections"]:[]),...(totals.pendingMissingReviews?["Missing-time review pending"]:[]),...(totals.leaveConflictSeconds?["Work overlaps approved leave"]:[]),...(totals.outsideEmploymentSeconds?["Work extends outside employment"]:[]),...totals.issues];
  return {...totals,week,weekEnd:end,thresholdSeconds:policy.thresholdSeconds,policyVersion:policy.ruleVersion,potentialSeconds,candidates,ended:now>=dayStart(end,settings.timezone),blockers};
 }

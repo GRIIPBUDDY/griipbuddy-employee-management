@@ -206,6 +206,7 @@ model OrganizationSettings {
   leaveDayBasis          String             @default("WORKING") @map("leave_day_basis") @db.VarChar(10)
   leaveOverBalance       String             @default("BLOCK") @map("leave_over_balance") @db.VarChar(10)
   salaryPaymentDay       Int?               @map("salary_payment_day") @db.SmallInt
+  warningDeductions      Json               @default("{\"NOTICE\":0.10,\"WARNING\":0.25,\"SERIOUS_WARNING\":0.50,\"FINAL_WARNING\":1.00}") @map("warning_deductions")
   createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt              DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
   changer                User               @relation(fields: [changedBy], references: [id], onDelete: Restrict)
@@ -835,4 +836,86 @@ model IncidentRecord {
  @@index([employeeId,occurredOn])
  @@index([status,occurredOn])
  @@map("incident_records")
+}
+
+/// Observed time away from work while checked in. Only CONFIRMED records reduce verified work (exactly once).
+model MissingTimeRecord {
+ id String @id @default(uuid()) @db.Uuid
+ employeeId String @map("employee_id") @db.Uuid
+ attendanceSessionId String? @map("attendance_session_id") @db.Uuid
+ workDate DateTime @map("work_date") @db.Date
+ startAt DateTime @map("start_at") @db.Timestamptz(0)
+ endAt DateTime @map("end_at") @db.Timestamptz(0)
+ category String @db.VarChar(20)
+ reason String @db.VarChar(1000)
+ evidenceNote String @default("") @map("evidence_note") @db.VarChar(2000)
+ status String @default("PENDING") @db.VarChar(10)
+ reportedBy String @map("reported_by") @db.Uuid
+ reviewedBy String? @map("reviewed_by") @db.Uuid
+ reviewedAt DateTime? @map("reviewed_at") @db.Timestamptz(3)
+ decisionNote String? @map("decision_note") @db.VarChar(1000)
+ employeeResponse String? @map("employee_response") @db.VarChar(2000)
+ respondedAt DateTime? @map("responded_at") @db.Timestamptz(3)
+ revision Int @default(1)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+ @@index([employeeId,startAt])
+ @@index([status,workDate])
+ @@map("missing_time_records")
+}
+
+/// A measurable weekly or monthly result expected from one employee. periodEnd is the inclusive last day.
+model PerformanceTarget {
+ id String @id @default(uuid()) @db.Uuid
+ employeeId String @map("employee_id") @db.Uuid
+ assignmentGroup String @map("assignment_group") @db.Uuid
+ title String @db.VarChar(150)
+ description String @default("") @db.VarChar(2000)
+ periodType String @map("period_type") @db.VarChar(10)
+ periodStart DateTime @map("period_start") @db.Date
+ periodEnd DateTime @map("period_end") @db.Date
+ targetValue Decimal @map("target_value") @db.Decimal(14, 2)
+ unit String @db.VarChar(40)
+ actualValue Decimal? @map("actual_value") @db.Decimal(14, 2)
+ resultNote String? @map("result_note") @db.VarChar(1000)
+ resultRecordedBy String? @map("result_recorded_by") @db.Uuid
+ resultRecordedAt DateTime? @map("result_recorded_at") @db.Timestamptz(3)
+ status String @default("ACTIVE") @db.VarChar(10)
+ notes String @default("") @db.VarChar(1000)
+ createdBy String @map("created_by") @db.Uuid
+ updatedBy String @map("updated_by") @db.Uuid
+ revision Int @default(1)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+ @@unique([employeeId,assignmentGroup])
+ @@index([employeeId,periodEnd])
+ @@index([periodEnd,status])
+ @@map("performance_targets")
+}
+
+/// Monthly rating: manual 0-5 plus automated 0-5. A finalized row is an immutable snapshot (breakdown) until reopened.
+model PerformanceAssessment {
+ id String @id @default(uuid()) @db.Uuid
+ employeeId String @map("employee_id") @db.Uuid
+ month DateTime @db.Date
+ status String @default("DRAFT") @db.VarChar(10)
+ manualScore Decimal? @map("manual_score") @db.Decimal(3, 1)
+ manualComment String @default("") @map("manual_comment") @db.VarChar(2000)
+ privateNote String @default("") @map("private_note") @db.VarChar(2000)
+ manualBy String? @map("manual_by") @db.Uuid
+ manualAt DateTime? @map("manual_at") @db.Timestamptz(3)
+ automatedRaw Decimal? @map("automated_raw") @db.Decimal(4, 2)
+ warningDeduction Decimal? @map("warning_deduction") @db.Decimal(4, 2)
+ automatedFinal Decimal? @map("automated_final") @db.Decimal(4, 2)
+ totalScore Decimal? @map("total_score") @db.Decimal(4, 2)
+ breakdown Json?
+ finalizedBy String? @map("finalized_by") @db.Uuid
+ finalizedAt DateTime? @map("finalized_at") @db.Timestamptz(3)
+ reopenReason String? @map("reopen_reason") @db.VarChar(1000)
+ revision Int @default(1)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+ @@unique([employeeId,month])
+ @@index([month,status])
+ @@map("performance_assessments")
 }

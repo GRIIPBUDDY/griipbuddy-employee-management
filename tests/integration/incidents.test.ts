@@ -192,7 +192,7 @@ it("16–17. records survive employee deactivation and can never be deleted", as
 });
 it("the module can be switched off: pages and actions become unavailable while records are kept", async () => {
   const settings = await import("@/features/settings/organization");
-  const modules = { tasks: true, shiftSwaps: true, commissions: true, performance: true, warnings: true, incidents: false, assets: true, workRecords: true, weeklyEarnings: false };
+  const modules = { tasks: true, shiftSwaps: true, commissions: true, performance: true, warnings: true, incidents: false, ratings: true, assets: true, workRecords: true, weeklyEarnings: false };
   await settings.updateModules(admin, modules);
   await expect(s.incidentOverview(admin, {})).rejects.toMatchObject({ status: 404 });
   await expect(s.ownIncidents(alice)).rejects.toMatchObject({ status: 404 });

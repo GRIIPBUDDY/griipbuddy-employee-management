@@ -70,6 +70,7 @@ Optional modules are switched on or off in Settings. A disabled module's navigat
 - **Attendance sessions** keep a snapshot of the schedule they were recorded against, so later schedule changes never rewrite history.
 - **The live "Currently working" view** (`src/features/time/live.ts`) reads open sessions with a fixed number of queries, whatever the headcount. The UI polls `GET /api/manage/live-workforce` every 15 seconds while the page is visible.
 - **Worked time** is calculated on demand from completed sessions, clipped to local day and week boundaries. There is no summary table that could drift.
+- **Confirmed missing time** (`missing_time_records`, status CONFIRMED) is subtracted in the same place (`summary()`), from the union of worked intervals. Reports, overtime and pay therefore all see the reduction, and it can never apply twice. Pending records change nothing but block salary closeout and overtime review.
 
 ## Pay
 
@@ -78,6 +79,13 @@ Optional modules are switched on or off in Settings. A disabled module's navigat
 - **Overtime** becomes payable only after a reviewer approves it.
 - **Amounts** use decimal arithmetic with half-up rounding.
 - **Payslips and registers** are generated as PDFs with the organization's branding.
+
+## Ratings
+
+- **Rules:** the scoring rules (weights, the 70/30 work-time split, manual score steps, warning deductions, quarterly averaging and tie ranking) are plain functions in `src/features/performance/policy.ts`, unit-tested on their own.
+- **Calculation:** `assessmentFacts()` gathers one employee's month from the existing sources (attendance summary, tasks, targets, published warnings) without writing anything.
+- **Finalizing:** finalization stores that breakdown as a JSON snapshot on `performance_assessments`, and a database trigger keeps a finalized row unchanged until an administrator reopens it.
+- **Rankings:** these are computed from finalized snapshots only.
 
 ## Documents
 

@@ -13,7 +13,7 @@ vi.mock("@/lib/auth/request", () => ({ assertMutationOrigin: async () => {}, get
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const identity = (userId: string): Identity => { const issuedAt = Date.now(); return { userId, sessionVersion: 1, issuedAt, absoluteExpiresAt: issuedAt + 43200000 }; };
 const at = (value: string) => { now = new Date(value); };
-const allModules = { tasks: true, shiftSwaps: true, commissions: true, performance: true, warnings: true, incidents: true, assets: true, workRecords: true, weeklyEarnings: false };
+const allModules = { tasks: true, shiftSwaps: true, commissions: true, performance: true, warnings: true, incidents: true, ratings: true, assets: true, workRecords: true, weeklyEarnings: false };
 async function attend(date: string, from = "02:00", until = "14:00") {
   const corrections = await import("@/features/review/corrections");
   for (const [start, end] of from === "02:00" && until === "14:00" ? [["02:00", "06:00"], ["10:00", "14:00"]] : [[from, until]]) {
